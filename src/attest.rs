@@ -3,10 +3,10 @@ use starknet::{
     accounts::{Account, ExecutionEncoding, SingleOwnerAccount},
     core::{
         chain_id,
-        types::{BlockId, BlockTag, Call},
+        types::{BlockId, BlockTag, Call, FunctionCall},
         utils::get_selector_from_name,
     },
-    providers::{JsonRpcClient, jsonrpc::JsonRpcTransport},
+    providers::{JsonRpcClient, Provider, jsonrpc::JsonRpcTransport},
     signers::LocalWallet,
 };
 use starknet_crypto::Felt;
@@ -37,4 +37,24 @@ pub async fn attest<T: JsonRpcTransport + Send + Sync + 'static>(
         .context("Sending attestation transaction")?;
 
     Ok(result.transaction_hash)
+}
+
+pub async fn attestation_done_in_current_epoch<T: JsonRpcTransport + Send + Sync + 'static>(
+    provider: &JsonRpcClient<T>,
+    staker_address: Felt,
+) -> anyhow::Result<bool> {
+    let result = provider
+        .call(
+            FunctionCall {
+                contract_address: crate::config::ATTESTATION_CONTRACT_ADDRESS,
+                entry_point_selector: get_selector_from_name("is_attestation_done_in_curr_epoch")
+                    .unwrap(),
+                calldata: vec![staker_address],
+            },
+            BlockId::Tag(BlockTag::Pending),
+        )
+        .await
+        .unwrap();
+
+    Ok(result == vec![Felt::ONE])
 }

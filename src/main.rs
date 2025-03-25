@@ -162,11 +162,22 @@ impl State {
                 attestation_params,
             } => {
                 if attestation_params.in_window(block_number) {
-                    tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
-                    let tx_hash = attest::attest(provider, signer, attestation_params.block_hash)
-                        .await
-                        .context("Sending attestation transaction")?;
-                    tracing::debug!(tx_hash=%tx_hash, "Transaction hash");
+                    let attestation_done = attest::attestation_done_in_current_epoch(
+                        provider,
+                        attestation_info.staker_address,
+                    )
+                    .await
+                    .context("Checking attestation status")?;
+
+                    if !attestation_done {
+                        tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
+                        let transaction_hash =
+                            attest::attest(provider, signer, attestation_params.block_hash)
+                                .await
+                                .context("Sending attestation transaction")?;
+                        tracing::debug!(?transaction_hash, "Transaction hash");
+                    }
+
                     State::WaitingForNextEpoch { attestation_info }
                 } else {
                     State::WaitingForAttestationWindow {
