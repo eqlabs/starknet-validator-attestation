@@ -1,20 +1,20 @@
-// use starknet::{
-//     accounts::{Account, ExecutionEncoding, SingleOwnerAccount},
-//     core::{
-//         chain_id,
-//         types::{BlockId, BlockTag, Call, Felt},
-//         utils::get_selector_from_name,
-//     },
-//     providers::jsonrpc::{HttpTransport, JsonRpcClient},
-//     signers::{LocalWallet, SigningKey},
-// };
+use std::cmp::Ordering;
+
 use anyhow::Context;
-use starknet::providers::{JsonRpcClient, jsonrpc::HttpTransport};
+use starknet::{
+    core::types::{BlockId, MaybePendingBlockWithTxHashes},
+    providers::{
+        JsonRpcClient, Provider,
+        jsonrpc::{HttpTransport, JsonRpcTransport},
+    },
+    signers::{LocalWallet, SigningKey},
+};
 use starknet_crypto::Felt;
 use tokio::select;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
+mod attest;
 mod attestation_info;
 mod config;
 mod events;
@@ -24,6 +24,7 @@ mod subscription;
 
 const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
+#[derive(Debug)]
 struct AttestationParams {
     block_hash: Felt,
     start_of_attestation_window: u64,
@@ -34,6 +35,150 @@ impl AttestationParams {
     pub fn in_window(&self, block_number: u64) -> bool {
         block_number >= self.start_of_attestation_window
             && block_number < self.end_of_attestation_window
+    }
+}
+
+#[derive(Debug)]
+enum State {
+    WaitingForBlockToAttest {
+        attestation_info: attestation_info::AttestationInfo,
+        block_to_attest: u64,
+    },
+    WaitingForAttestationWindow {
+        attestation_info: attestation_info::AttestationInfo,
+        attestation_params: AttestationParams,
+    },
+    WaitingForNextEpoch {
+        attestation_info: attestation_info::AttestationInfo,
+    },
+}
+
+impl State {
+    pub fn from_attestation_info(
+        attestation_info: attestation_info::AttestationInfo,
+    ) -> anyhow::Result<Self> {
+        let block_to_attest = attestation_info
+            .calculate_expected_attestation_block()
+            .context("Calculating expected attestation block")?;
+        Ok(State::WaitingForBlockToAttest {
+            attestation_info,
+            block_to_attest,
+        })
+    }
+
+    fn attestation_info(&self) -> &attestation_info::AttestationInfo {
+        match self {
+            State::WaitingForBlockToAttest {
+                attestation_info, ..
+            } => attestation_info,
+            State::WaitingForAttestationWindow {
+                attestation_info, ..
+            } => attestation_info,
+            State::WaitingForNextEpoch { attestation_info } => attestation_info,
+        }
+    }
+
+    fn block_in_current_epoch(&self, block_number: u64) -> bool {
+        let attestation_info = self.attestation_info();
+        block_number >= attestation_info.current_epoch_starting_block
+            && block_number
+                < attestation_info.current_epoch_starting_block + attestation_info.epoch_len
+    }
+
+    pub async fn handle_new_block_header<T: JsonRpcTransport + Send + Sync + 'static>(
+        self,
+        provider: &JsonRpcClient<T>,
+        signer: &LocalWallet,
+        block_number: u64,
+        block_hash: Felt,
+    ) -> anyhow::Result<Self> {
+        // Check if a new epoch has started and re-initialize
+        let state = if self.block_in_current_epoch(block_number) {
+            self
+        } else {
+            let attestation_info = attestation_info::get_attestation_info(
+                provider,
+                config::STAKER_OPERATIONAL_ADDRESS,
+            )
+            .await
+            .context("Getting attestation info")?;
+            tracing::debug!(?attestation_info, "New epoch started");
+            State::from_attestation_info(attestation_info)?
+        };
+
+        Ok(match state {
+            State::WaitingForBlockToAttest {
+                attestation_info,
+                block_to_attest,
+            } => match block_number.cmp(&block_to_attest) {
+                // Not there yet.
+                Ordering::Less => State::WaitingForBlockToAttest {
+                    attestation_info,
+                    block_to_attest,
+                },
+                // We have received the block hash for the block to attest.
+                Ordering::Equal => {
+                    let attestation_window = attestation_info.attestation_window;
+                    State::WaitingForAttestationWindow {
+                        attestation_info,
+                        attestation_params: AttestationParams {
+                            block_hash,
+                            start_of_attestation_window: block_number
+                                + config::MIN_ATTESTATION_WINDOW,
+                            end_of_attestation_window: block_number + attestation_window as u64,
+                        },
+                    }
+                }
+                // We're past the block on the block header subscription.
+                Ordering::Greater => {
+                    // Fetch block hash from the provider.
+                    let block = provider
+                        .get_block_with_tx_hashes(BlockId::Number(block_to_attest))
+                        .await
+                        .context("Fetching block hash of block to attest")?;
+                    match block {
+                        MaybePendingBlockWithTxHashes::Block(block) => {
+                            let attestation_window = attestation_info.attestation_window;
+                            State::WaitingForAttestationWindow {
+                                attestation_info,
+                                attestation_params: AttestationParams {
+                                    block_hash: block.block_hash,
+                                    start_of_attestation_window: block_to_attest
+                                        + config::MIN_ATTESTATION_WINDOW,
+                                    end_of_attestation_window: block_to_attest
+                                        + attestation_window as u64,
+                                },
+                            }
+                        }
+                        _ => State::WaitingForBlockToAttest {
+                            attestation_info,
+                            block_to_attest,
+                        },
+                    }
+                }
+            },
+            State::WaitingForAttestationWindow {
+                attestation_info,
+                attestation_params,
+            } => {
+                if attestation_params.in_window(block_number) {
+                    tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
+                    let tx_hash = attest::attest(provider, signer, attestation_params.block_hash)
+                        .await
+                        .context("Sending attestation transaction")?;
+                    tracing::debug!(tx_hash=%tx_hash, "Transaction hash");
+                    State::WaitingForNextEpoch { attestation_info }
+                } else {
+                    State::WaitingForAttestationWindow {
+                        attestation_info,
+                        attestation_params,
+                    }
+                }
+            }
+            State::WaitingForNextEpoch { attestation_info } => {
+                State::WaitingForNextEpoch { attestation_info }
+            }
+        })
     }
 }
 
@@ -50,12 +195,16 @@ async fn main() -> anyhow::Result<()> {
         .add_global_label("network", "sepolia-testnet")
         .install_recorder()
         .context("Creating Prometheus metrics recorder")?;
-    let addr: std::net::SocketAddr = "127.0.0.1:8080".parse()?;
+    let addr: std::net::SocketAddr = config::METRICS_ADDRESS.parse()?;
     metrics_exporter::spawn(addr, prometheus_handle)
         .await
         .context("Staring metrics exporter")?;
 
-    let node_url = Url::parse(config::NODE_URL_WS).unwrap();
+    let node_url = Url::parse(config::NODE_URL_WS)?;
+
+    let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(
+        Felt::from_hex(&std::env::var("PRIVATE_KEY").unwrap()).unwrap(),
+    ));
 
     let (new_heads_tx, mut new_heads_rx) = tokio::sync::mpsc::channel(10);
     let mut new_block_fetcher_handle =
@@ -65,19 +214,13 @@ async fn main() -> anyhow::Result<()> {
     let mut events_fetcher_handle =
         tokio::task::spawn(events::fetch(node_url.clone(), events_tx.clone()));
 
-    let provider = JsonRpcClient::new(HttpTransport::new(
-        Url::parse(config::NODE_URL_HTTP).unwrap(),
-    ));
-    let mut attestation_info =
+    let provider = JsonRpcClient::new(HttpTransport::new(Url::parse(config::NODE_URL_HTTP)?));
+    let attestation_info =
         attestation_info::get_attestation_info(&provider, config::STAKER_OPERATIONAL_ADDRESS)
             .await
             .context("Getting attestation info")?;
     tracing::debug!(?attestation_info, "Current attestation info");
-
-    let mut block_to_attest = attestation_info
-        .calculate_expected_attestation_block()
-        .context("Calculating expected attestation block for next epoch")?;
-    let mut attestation_params = None;
+    let mut state = State::from_attestation_info(attestation_info)?;
 
     loop {
         select! {
@@ -104,37 +247,9 @@ async fn main() -> anyhow::Result<()> {
                         metrics::gauge!("validator_attestation_starknet_latest_block_number").set(header.block_number as f64);
 
                         // FIXME: handle reorgs
-
-                        // Check if a new epoch has started
-                        let first_block_of_next_epoch =
-                            attestation_info.current_epoch_starting_block + attestation_info.epoch_len;
-                        if header.block_number >= first_block_of_next_epoch {
-                            attestation_info = attestation_info::get_attestation_info(&provider, config::STAKER_OPERATIONAL_ADDRESS)
-                                .await
-                                .context("Getting attestation info")?;
-                            block_to_attest = attestation_info.calculate_expected_attestation_block()
-                                .context("Calculating expected attestation block for next epoch")?;
-                            attestation_params.take();
-
-                            tracing::debug!(?attestation_info, %block_to_attest, "New epoch started");
-                        }
-
-                        // Check if block to attest has arrived
-                        if header.block_number == block_to_attest {
-                            attestation_params = Some(AttestationParams {
-                                block_hash: header.block_hash,
-                                start_of_attestation_window: header.block_number + config::MIN_ATTESTATION_WINDOW,
-                                end_of_attestation_window: header.block_number + attestation_info.attestation_window as u64,
-                            });
-                            tracing::debug!(block_hash=%header.block_hash, "Block number matches block to attest");
-                        }
-
-                        // Check if we're within the attestation window
-                        if let Some(attestation_params) = &attestation_params {
-                            if attestation_params.in_window(header.block_number) {
-                                tracing::debug!("Should send attestation tx");
-                            }
-                        }
+                        let new_state = state.handle_new_block_header(&provider, &signer, header.block_number, header.block_hash).await?;
+                        tracing::debug!(?new_state, "State transition complete");
+                        state = new_state;
                     },
                     None => tracing::warn!("Channel closed before receiving new block header"),
                 }
@@ -147,43 +262,4 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
-
-    // let provider = JsonRpcClient::new(HttpTransport::new(
-    //     Url::parse("https://starknet-sepolia.public.blastapi.io/rpc/v0_8").unwrap(),
-    // ));
-
-    // let signer = LocalWallet::from(SigningKey::from_secret_scalar(
-    //     Felt::from_hex("YOUR_PRIVATE_KEY_IN_HEX_HERE").unwrap(),
-    // ));
-    // let address = Felt::from_hex("YOUR_ACCOUNT_CONTRACT_ADDRESS_IN_HEX_HERE").unwrap();
-    // let tst_token_address =
-    //     Felt::from_hex("07394cbe418daa16e42b87ba67372d4ab4a5df0b05c6e554d158458ce245bc10").unwrap();
-
-    // let mut account = SingleOwnerAccount::new(
-    //     provider,
-    //     signer,
-    //     address,
-    //     chain_id::SEPOLIA,
-    //     ExecutionEncoding::New,
-    // );
-
-    // // `SingleOwnerAccount` defaults to checking nonce and estimating fees against the latest
-    // // block. Optionally change the target block to pending with the following line:
-    // account.set_block_id(BlockId::Tag(BlockTag::Pending));
-
-    // let result = account
-    //     .execute_v3(vec![Call {
-    //         to: tst_token_address,
-    //         selector: get_selector_from_name("mint").unwrap(),
-    //         calldata: vec![
-    //             address,
-    //             Felt::from_dec_str("1000000000000000000000").unwrap(),
-    //             Felt::ZERO,
-    //         ],
-    //     }])
-    //     .send()
-    //     .await
-    //     .unwrap();
-
-    // println!("Transaction hash: {:#064x}", result.transaction_hash);
 }

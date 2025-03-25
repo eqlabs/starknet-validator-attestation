@@ -9,3 +9,4 @@ pub const STAKER_OPERATIONAL_ADDRESS: Felt =
 pub const NODE_URL_WS: &str = "ws://127.0.0.1:9545/rpc/v0_8";
 pub const NODE_URL_HTTP: &str = "http://127.0.0.1:9545/rpc/v0_8";
 pub const MIN_ATTESTATION_WINDOW: u64 = 10;
+pub const METRICS_ADDRESS: &str = "127.0.0.1:8080";

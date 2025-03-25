@@ -19,17 +19,6 @@ pub struct AttestationInfo {
 }
 
 impl AttestationInfo {
-    pub fn next_epoch(&self) -> Self {
-        Self {
-            staker_address: self.staker_address,
-            stake: self.stake,
-            epoch_len: self.epoch_len,
-            epoch_id: self.epoch_id + 1,
-            current_epoch_starting_block: self.current_epoch_starting_block + self.epoch_len,
-            attestation_window: self.attestation_window,
-        }
-    }
-
     pub fn calculate_expected_attestation_block(&self) -> anyhow::Result<u64> {
         let mut h = PoseidonHasher::new();
         h.update(self.stake.into());
