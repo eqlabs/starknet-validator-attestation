@@ -15,6 +15,7 @@ pub struct AttestationInfo {
     pub epoch_len: u64,
     pub epoch_id: u64,
     pub current_epoch_starting_block: u64,
+    pub attestation_window: u16,
 }
 
 impl AttestationInfo {
@@ -25,7 +26,25 @@ impl AttestationInfo {
             epoch_len: self.epoch_len,
             epoch_id: self.epoch_id + 1,
             current_epoch_starting_block: self.current_epoch_starting_block + self.epoch_len,
+            attestation_window: self.attestation_window,
         }
+    }
+
+    pub fn calculate_expected_attestation_block(&self) -> anyhow::Result<u64> {
+        let mut h = PoseidonHasher::new();
+        h.update(self.stake.into());
+        h.update(self.epoch_id.into());
+        h.update(self.staker_address);
+        let hash = h.finalize();
+
+        let modulus = Felt::from(self.epoch_len - self.attestation_window as u64);
+
+        let block_offset: u64 = hash
+            .div_rem(&NonZeroFelt::try_from(modulus)?)
+            .1
+            .try_into()?;
+
+        Ok(self.current_epoch_starting_block + block_offset)
     }
 }
 
@@ -48,6 +67,10 @@ pub async fn get_attestation_info<T: JsonRpcTransport + Send + Sync + 'static>(
         .await
         .unwrap();
 
+    let attestation_window = get_attestation_window(provider)
+        .await
+        .context("Getting attestation window")?;
+
     Ok(AttestationInfo {
         staker_address: attestation_info[0],
         stake: attestation_info[1].try_into().context("Converting stake")?,
@@ -60,10 +83,11 @@ pub async fn get_attestation_info<T: JsonRpcTransport + Send + Sync + 'static>(
         current_epoch_starting_block: attestation_info[4]
             .try_into()
             .context("Converting current epoch starting block")?,
+        attestation_window,
     })
 }
 
-pub async fn get_attestation_window<T: JsonRpcTransport + Send + Sync + 'static>(
+async fn get_attestation_window<T: JsonRpcTransport + Send + Sync + 'static>(
     provider: &JsonRpcClient<T>,
 ) -> anyhow::Result<u16> {
     let result = provider
@@ -82,24 +106,4 @@ pub async fn get_attestation_window<T: JsonRpcTransport + Send + Sync + 'static>
         .try_into()
         .context("Converting attestation window")?;
     Ok(attestation_window)
-}
-
-pub fn calculate_expected_attestation_block(
-    attestation_info: &AttestationInfo,
-    attestation_window: u16,
-) -> anyhow::Result<u64> {
-    let mut h = PoseidonHasher::new();
-    h.update(attestation_info.stake.into());
-    h.update(attestation_info.epoch_id.into());
-    h.update(attestation_info.staker_address);
-    let hash = h.finalize();
-
-    let modulus = Felt::from(attestation_info.epoch_len - attestation_window as u64);
-
-    let block_offset: u64 = hash
-        .div_rem(&NonZeroFelt::try_from(modulus)?)
-        .1
-        .try_into()?;
-
-    Ok(attestation_info.current_epoch_starting_block + block_offset)
 }

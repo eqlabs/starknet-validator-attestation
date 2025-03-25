@@ -74,15 +74,9 @@ async fn main() -> anyhow::Result<()> {
             .context("Getting attestation info")?;
     tracing::debug!(?attestation_info, "Current attestation info");
 
-    let mut attestation_window = attestation_info::get_attestation_window(&provider)
-        .await
-        .context("Getting attestation window")?;
-
-    let mut block_to_attest = attestation_info::calculate_expected_attestation_block(
-        &attestation_info,
-        attestation_window,
-    )
-    .context("Calculating expected attestation block for next epoch")?;
+    let mut block_to_attest = attestation_info
+        .calculate_expected_attestation_block()
+        .context("Calculating expected attestation block for next epoch")?;
     let mut attestation_params = None;
 
     loop {
@@ -118,16 +112,11 @@ async fn main() -> anyhow::Result<()> {
                             attestation_info = attestation_info::get_attestation_info(&provider, config::STAKER_OPERATIONAL_ADDRESS)
                                 .await
                                 .context("Getting attestation info")?;
-                            attestation_window = attestation_info::get_attestation_window(&provider)
-                                .await
-                                .context("Getting attestation window")?;
-                            block_to_attest = attestation_info::calculate_expected_attestation_block(
-                                &attestation_info,
-                                attestation_window,
-                            )
-                            .context("Calculating expected attestation block for next epoch")?;
+                            block_to_attest = attestation_info.calculate_expected_attestation_block()
+                                .context("Calculating expected attestation block for next epoch")?;
+                            attestation_params.take();
 
-                            tracing::debug!(?attestation_info, %attestation_window, %block_to_attest, "New epoch started");
+                            tracing::debug!(?attestation_info, %block_to_attest, "New epoch started");
                         }
 
                         // Check if block to attest has arrived
@@ -135,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
                             attestation_params = Some(AttestationParams {
                                 block_hash: header.block_hash,
                                 start_of_attestation_window: header.block_number + config::MIN_ATTESTATION_WINDOW,
-                                end_of_attestation_window: header.block_number + attestation_window as u64,
+                                end_of_attestation_window: header.block_number + attestation_info.attestation_window as u64,
                             });
                             tracing::debug!(block_hash=%header.block_hash, "Block number matches block to attest");
                         }
@@ -146,7 +135,6 @@ async fn main() -> anyhow::Result<()> {
                                 tracing::debug!("Should send attestation tx");
                             }
                         }
-
                     },
                     None => tracing::warn!("Channel closed before receiving new block header"),
                 }

@@ -8,4 +8,4 @@ pub const STAKER_OPERATIONAL_ADDRESS: Felt =
     felt!("0x02E216b191Ac966Ba1d35Cb6cfdDFaF9C12AEc4DFE869d9FA6233611bb334EE9");
 pub const NODE_URL_WS: &str = "ws://127.0.0.1:9545/rpc/v0_8";
 pub const NODE_URL_HTTP: &str = "http://127.0.0.1:9545/rpc/v0_8";
-pub const MIN_ATTESTATION_WINDOW: u64 = 11;
+pub const MIN_ATTESTATION_WINDOW: u64 = 10;
