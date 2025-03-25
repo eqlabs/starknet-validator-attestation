@@ -16,6 +16,7 @@ reqwest-websocket = { version = "0.4.4", features = ["json"] }
 serde = "1.0.219"
 serde_json = "1.0.140"
 starknet = { version = "0.13.0", git = "https://github.com/xJonathanLEI/starknet-rs", branch = "dev/jsonrpc_0_8_0" }
+starknet-crypto = { version = "0.7.4", git = "https://github.com/xJonathanLEI/starknet-rs", branch = "dev/jsonrpc_0_8_0" }
 tokio = { version = "1.44.1", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

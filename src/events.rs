@@ -12,7 +12,7 @@ pub async fn fetch(
     let (mut client, subscription_id) = subscription::subscribe(
         url.clone(),
         subscription::SubscriptionMethod::SubscribeEvents {
-            from_address: None,
+            from_address: Some(crate::config::STAKING_CONTRACT_ADDRESS),
             keys: vec![],
             block_id: None,
         },

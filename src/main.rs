@@ -9,16 +9,33 @@
 //     signers::{LocalWallet, SigningKey},
 // };
 use anyhow::Context;
+use starknet::providers::{JsonRpcClient, jsonrpc::HttpTransport};
+use starknet_crypto::Felt;
 use tokio::select;
 use tracing_subscriber::prelude::*;
 use url::Url;
 
+mod attestation_info;
+mod config;
 mod events;
 mod headers;
 mod metrics_exporter;
 mod subscription;
 
 const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
+struct AttestationParams {
+    block_hash: Felt,
+    start_of_attestation_window: u64,
+    end_of_attestation_window: u64,
+}
+
+impl AttestationParams {
+    pub fn in_window(&self, block_number: u64) -> bool {
+        block_number >= self.start_of_attestation_window
+            && block_number < self.end_of_attestation_window
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,21 +55,41 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Staring metrics exporter")?;
 
-    let url = Url::parse("ws://127.0.0.1:9545/rpc/v0_8").unwrap();
+    let node_url = Url::parse(config::NODE_URL_WS).unwrap();
 
     let (new_heads_tx, mut new_heads_rx) = tokio::sync::mpsc::channel(10);
     let mut new_block_fetcher_handle =
-        tokio::task::spawn(headers::fetch(url.clone(), new_heads_tx.clone()));
+        tokio::task::spawn(headers::fetch(node_url.clone(), new_heads_tx.clone()));
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(10);
     let mut events_fetcher_handle =
-        tokio::task::spawn(events::fetch(url.clone(), events_tx.clone()));
+        tokio::task::spawn(events::fetch(node_url.clone(), events_tx.clone()));
+
+    let provider = JsonRpcClient::new(HttpTransport::new(
+        Url::parse(config::NODE_URL_HTTP).unwrap(),
+    ));
+    let mut attestation_info =
+        attestation_info::get_attestation_info(&provider, config::STAKER_OPERATIONAL_ADDRESS)
+            .await
+            .context("Getting attestation info")?;
+    tracing::debug!(?attestation_info, "Current attestation info");
+
+    let mut attestation_window = attestation_info::get_attestation_window(&provider)
+        .await
+        .context("Getting attestation window")?;
+
+    let mut block_to_attest = attestation_info::calculate_expected_attestation_block(
+        &attestation_info,
+        attestation_window,
+    )
+    .context("Calculating expected attestation block for next epoch")?;
+    let mut attestation_params = None;
 
     loop {
         select! {
             block_fetcher_result = &mut new_block_fetcher_handle => {
                 tracing::error!(error=?block_fetcher_result, "New block fetcher task has exited, restarting");
-                let new_block_fetcher_fut = headers::fetch(url.clone(), new_heads_tx.clone());
+                let new_block_fetcher_fut = headers::fetch(node_url.clone(), new_heads_tx.clone());
                 new_block_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     new_block_fetcher_fut.await
@@ -60,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
             }
             events_fetcher_result = &mut events_fetcher_handle => {
                 tracing::error!(error=?events_fetcher_result, "Events fetcher task has exited, restarting");
-                let events_fetcher_fut = events::fetch(url.clone(), events_tx.clone());
+                let events_fetcher_fut = events::fetch(node_url.clone(), events_tx.clone());
                 events_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     events_fetcher_fut.await
@@ -71,6 +108,45 @@ async fn main() -> anyhow::Result<()> {
                     Some(header) => {
                         tracing::info!("Received new block header: {:?}", header);
                         metrics::gauge!("validator_attestation_starknet_latest_block_number").set(header.block_number as f64);
+
+                        // FIXME: handle reorgs
+
+                        // Check if a new epoch has started
+                        let first_block_of_next_epoch =
+                            attestation_info.current_epoch_starting_block + attestation_info.epoch_len;
+                        if header.block_number >= first_block_of_next_epoch {
+                            attestation_info = attestation_info::get_attestation_info(&provider, config::STAKER_OPERATIONAL_ADDRESS)
+                                .await
+                                .context("Getting attestation info")?;
+                            attestation_window = attestation_info::get_attestation_window(&provider)
+                                .await
+                                .context("Getting attestation window")?;
+                            block_to_attest = attestation_info::calculate_expected_attestation_block(
+                                &attestation_info,
+                                attestation_window,
+                            )
+                            .context("Calculating expected attestation block for next epoch")?;
+
+                            tracing::debug!(?attestation_info, %attestation_window, %block_to_attest, "New epoch started");
+                        }
+
+                        // Check if block to attest has arrived
+                        if header.block_number == block_to_attest {
+                            attestation_params = Some(AttestationParams {
+                                block_hash: header.block_hash,
+                                start_of_attestation_window: header.block_number + config::MIN_ATTESTATION_WINDOW,
+                                end_of_attestation_window: header.block_number + attestation_window as u64,
+                            });
+                            tracing::debug!(block_hash=%header.block_hash, "Block number matches block to attest");
+                        }
+
+                        // Check if we're within the attestation window
+                        if let Some(attestation_params) = &attestation_params {
+                            if attestation_params.in_window(header.block_number) {
+                                tracing::debug!("Should send attestation tx");
+                            }
+                        }
+
                     },
                     None => tracing::warn!("Channel closed before receiving new block header"),
                 }
