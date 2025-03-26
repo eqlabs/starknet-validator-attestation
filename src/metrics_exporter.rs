@@ -29,9 +29,34 @@ async fn metrics_route(axum::extract::State(state): axum::extract::State<State>)
 }
 
 fn describe_metrics() {
+    // Starknet
     metrics::describe_gauge!(
         "validator_attestation_starknet_latest_block_number",
         metrics::Unit::Count,
         "Latest block number seen by the validator"
+    );
+
+    // Epoch
+    metrics::describe_gauge!(
+        "validator_attestation_current_epoch_id",
+        metrics::Unit::Count,
+        "Current epoch ID"
+    );
+    metrics::describe_gauge!(
+        "validator_attestation_current_epoch_starting_block_number",
+        metrics::Unit::Count,
+        "Current epoch starting block number"
+    );
+    metrics::describe_gauge!(
+        "validator_attestation_current_epoch_length",
+        metrics::Unit::Count,
+        "Current epoch length"
+    );
+
+    // Attestation
+    metrics::describe_gauge!(
+        "validator_attestation_last_attestation_timestamp_seconds",
+        metrics::Unit::Seconds,
+        "Timestamp of the last attestation"
     );
 }

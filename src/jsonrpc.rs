@@ -2,7 +2,10 @@ use anyhow::Context;
 use starknet::{
     accounts::{Account, AccountError, SingleOwnerAccount},
     core::{
-        types::{BlockId, BlockTag, FunctionCall, MaybePendingBlockWithTxHashes},
+        types::{
+            BlockId, BlockTag, ContractExecutionError, FunctionCall, InnerContractExecutionError,
+            MaybePendingBlockWithTxHashes,
+        },
         utils::get_selector_from_name,
     },
     providers::{JsonRpcClient, Provider, ProviderError, jsonrpc::HttpTransport},
@@ -25,13 +28,23 @@ impl From<ProviderError> for ClientError {
     fn from(error: ProviderError) -> Self {
         match error {
             ProviderError::StarknetError(error) => match error {
-                starknet::core::types::StarknetError::TransactionExecutionError(e) => {
-                    ClientError::AttestationFailed(format!("Transaction rejected: {e:?}"))
+                starknet::core::types::StarknetError::TransactionExecutionError(data) => {
+                    let message = contract_execution_error_message(&data.execution_error);
+                    ClientError::AttestationFailed(format!("Transaction rejected: {message}"))
                 }
-                _ => ClientError::Other(error.into()),
+                _ => ClientError::AttestationFailed(error.to_string()),
             },
             _ => ClientError::Other(error.into()),
         }
+    }
+}
+
+fn contract_execution_error_message(error: &ContractExecutionError) -> String {
+    match error {
+        ContractExecutionError::Nested(InnerContractExecutionError { error, .. }) => {
+            contract_execution_error_message(error)
+        }
+        ContractExecutionError::Message(message) => message.clone(),
     }
 }
 

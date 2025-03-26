@@ -1,12 +1,12 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, time::SystemTime};
 
 use anyhow::Context;
 use starknet::signers::LocalWallet;
 use starknet_crypto::Felt;
 
-use crate::attestation_info::AttestationInfo;
+use crate::{attestation_info::AttestationInfo, events::AttestationEvent};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AttestationParams {
     block_hash: Felt,
     start_of_attestation_window: u64,
@@ -27,13 +27,13 @@ impl AttestationParams {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum State {
-    WaitingForBlockToAttest {
+    BeforeBlockToAttest {
         attestation_info: AttestationInfo,
         block_to_attest: u64,
     },
-    WaitingForAttestationWindow {
+    Attesting {
         attestation_info: AttestationInfo,
         attestation_params: AttestationParams,
     },
@@ -47,7 +47,15 @@ impl State {
         let block_to_attest = attestation_info
             .calculate_expected_attestation_block()
             .context("Calculating expected attestation block")?;
-        Ok(State::WaitingForBlockToAttest {
+
+        metrics::gauge!("validator_attestation_current_epoch_id")
+            .set(attestation_info.epoch_id as f64);
+        metrics::gauge!("validator_attestation_current_epoch_starting_block_number")
+            .set(attestation_info.current_epoch_starting_block as f64);
+        metrics::gauge!("validator_attestation_current_epoch_length")
+            .set(attestation_info.epoch_len as f64);
+
+        Ok(State::BeforeBlockToAttest {
             attestation_info,
             block_to_attest,
         })
@@ -55,10 +63,10 @@ impl State {
 
     fn attestation_info(&self) -> &AttestationInfo {
         match self {
-            State::WaitingForBlockToAttest {
+            State::BeforeBlockToAttest {
                 attestation_info, ..
             } => attestation_info,
-            State::WaitingForAttestationWindow {
+            State::Attesting {
                 attestation_info, ..
             } => attestation_info,
             State::WaitingForNextEpoch { attestation_info } => attestation_info,
@@ -87,24 +95,24 @@ impl State {
                 .get_attestation_info(crate::config::STAKER_OPERATIONAL_ADDRESS)
                 .await
                 .context("Getting attestation info")?;
-            tracing::debug!(?attestation_info, "New epoch started");
+            tracing::info!(?attestation_info, "New epoch started");
             State::from_attestation_info(attestation_info)?
         };
 
         Ok(match state {
-            State::WaitingForBlockToAttest {
+            State::BeforeBlockToAttest {
                 attestation_info,
                 block_to_attest,
             } => match block_number.cmp(&block_to_attest) {
                 // Not there yet.
-                Ordering::Less => State::WaitingForBlockToAttest {
+                Ordering::Less => State::BeforeBlockToAttest {
                     attestation_info,
                     block_to_attest,
                 },
                 // We have received the block hash for the block to attest.
                 Ordering::Equal => {
                     let attestation_window = attestation_info.attestation_window;
-                    State::WaitingForAttestationWindow {
+                    State::Attesting {
                         attestation_info,
                         attestation_params: AttestationParams {
                             block_hash,
@@ -122,7 +130,7 @@ impl State {
                         .await
                         .map(|block_hash| {
                             let attestation_window = attestation_info.attestation_window;
-                            State::WaitingForAttestationWindow {
+                            State::Attesting {
                                 attestation_info,
                                 attestation_params: AttestationParams {
                                     block_hash,
@@ -135,11 +143,11 @@ impl State {
                         })?
                 }
             },
-            State::WaitingForAttestationWindow {
+            State::Attesting {
                 attestation_info,
                 attestation_params,
             } => match attestation_params.in_window(block_number) {
-                Ordering::Less => State::WaitingForAttestationWindow {
+                Ordering::Less => State::Attesting {
                     attestation_info,
                     attestation_params,
                 },
@@ -155,15 +163,23 @@ impl State {
                         match result {
                             Ok(transaction_hash) => {
                                 tracing::info!(?transaction_hash, "Sent attestation transaction");
-                                State::WaitingForNextEpoch { attestation_info }
+
+                                metrics::gauge!(
+                                    "validator_attestation_last_attestation_timestamp_seconds"
+                                )
+                                .set(
+                                    SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)?
+                                        .as_secs_f64(),
+                                );
                             }
                             Err(err) => {
                                 tracing::error!(error = %err, "Failed to send attestation transaction");
-                                State::WaitingForAttestationWindow {
-                                    attestation_info,
-                                    attestation_params,
-                                }
                             }
+                        };
+                        State::Attesting {
+                            attestation_info,
+                            attestation_params,
                         }
                     } else {
                         tracing::debug!("Attestation already done");
@@ -171,7 +187,7 @@ impl State {
                     }
                 }
                 Ordering::Greater => {
-                    tracing::debug!("We're past the attestation window");
+                    // We're past the attestation window
                     State::WaitingForNextEpoch { attestation_info }
                 }
             },
@@ -179,5 +195,29 @@ impl State {
                 State::WaitingForNextEpoch { attestation_info }
             }
         })
+    }
+
+    pub fn handle_new_event(self, event: AttestationEvent) -> Self {
+        match event {
+            AttestationEvent::StakerAttestationSuccessful {
+                staker_address,
+                epoch_id,
+            } => self.handle_attestation_successful_event(staker_address, epoch_id),
+        }
+    }
+
+    fn handle_attestation_successful_event(self, staker_address: Felt, epoch_id: u64) -> Self {
+        let attestation_info = self.attestation_info();
+        if attestation_info.staker_address == staker_address
+            && attestation_info.epoch_id == epoch_id
+        {
+            tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
+            Self::WaitingForNextEpoch {
+                attestation_info: attestation_info.clone(),
+            }
+        } else {
+            tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
+            self
+        }
     }
 }

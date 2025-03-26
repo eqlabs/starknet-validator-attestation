@@ -78,21 +78,34 @@ async fn main() -> anyhow::Result<()> {
             new_block_header = new_heads_rx.recv() => {
                 match new_block_header {
                     Some(header) => {
-                        tracing::info!("Received new block header: {:?}", header);
+                        tracing::debug!("Received new block header: {:?}", header);
                         metrics::gauge!("validator_attestation_starknet_latest_block_number").set(header.block_number as f64);
 
                         // FIXME: handle reorgs
-                        let new_state = state.handle_new_block_header(&client, &signer, header.block_number, header.block_hash).await?;
-                        tracing::debug!(?new_state, "State transition complete");
-                        state = new_state;
+                        let old_state = state.clone();
+                        let result = state.handle_new_block_header(&client, &signer, header.block_number, header.block_hash).await;
+                        match result {
+                            Ok(new_state) => {
+                                tracing::debug!(?new_state, "State transition complete");
+                                state = new_state;
+                            },
+                            Err(error) => {
+                                tracing::error!(?error, "Failed to handle new block header");
+                                state = old_state;
+                            }
+                        }
                     },
-                    None => tracing::warn!("Channel closed before receiving new block header"),
+                    None => tracing::warn!("New block header channel closed"),
                 }
             }
             event = events_rx.recv() => {
                 match event {
-                    Some(event) => tracing::info!("Received new event: {:?}", event),
-                    None => tracing::warn!("Channel closed before receiving new event"),
+                    Some(event) => {
+                        tracing::debug!("Received new event: {:?}", event);
+                        state = state.handle_new_event(event);
+                        tracing::debug!(new_state=?state, "State transition complete");
+                    },
+                    None => tracing::warn!("New event channel closed"),
                 }
             }
         }
