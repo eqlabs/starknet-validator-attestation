@@ -15,7 +15,7 @@ pub async fn fetch(
     )
     .await?;
 
-    tracing::info!(
+    tracing::debug!(
         %subscription_id,
         "Subscription to new block headers established"
     );

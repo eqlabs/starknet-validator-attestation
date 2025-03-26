@@ -28,7 +28,7 @@ pub async fn fetch(
     )
     .await?;
 
-    tracing::info!(
+    tracing::debug!(
         %subscription_id,
         "Subscription to events established"
     );
