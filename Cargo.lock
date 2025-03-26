@@ -2623,6 +2623,7 @@ dependencies = [
  "serde_json",
  "starknet",
  "starknet-crypto",
+ "thiserror 2.0.12",
  "tokio",
  "tracing",
  "tracing-subscriber",
