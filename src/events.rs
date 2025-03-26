@@ -44,6 +44,7 @@ pub async fn fetch(
                 serde_json::from_str(&text).context("Parsing new event notification")?;
             match notification.method {
                 subscription::NotificationMethod::EventsNotification(params) => {
+                    tracing::trace!(?params, "Received events notification");
                     if params.subscription_id == subscription_id {
                         let selector = params.result.keys.get(0).unwrap_or(&Felt::ZERO);
 
@@ -60,11 +61,12 @@ pub async fn fetch(
                         }
                     }
                 }
-
                 subscription::NotificationMethod::NewHeadsNotification(_) => {
                     tracing::warn!("Received new heads notification, but not handling it");
                 }
             }
+        } else {
+            tracing::trace!(?message, "Unexpected Websocket message");
         }
     }
 }

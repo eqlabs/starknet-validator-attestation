@@ -43,10 +43,8 @@ pub enum State {
 }
 
 impl State {
-    pub fn from_attestation_info(attestation_info: AttestationInfo) -> anyhow::Result<Self> {
-        let block_to_attest = attestation_info
-            .calculate_expected_attestation_block()
-            .context("Calculating expected attestation block")?;
+    pub fn from_attestation_info(attestation_info: AttestationInfo) -> Self {
+        let block_to_attest = attestation_info.calculate_expected_attestation_block();
 
         metrics::gauge!("validator_attestation_current_epoch_id")
             .set(attestation_info.epoch_id as f64);
@@ -54,11 +52,13 @@ impl State {
             .set(attestation_info.current_epoch_starting_block as f64);
         metrics::gauge!("validator_attestation_current_epoch_length")
             .set(attestation_info.epoch_len as f64);
+        metrics::gauge!("validator_attestation_current_epoch_assigned_block_number")
+            .set(block_to_attest as f64);
 
-        Ok(State::BeforeBlockToAttest {
+        State::BeforeBlockToAttest {
             attestation_info,
             block_to_attest,
-        })
+        }
     }
 
     fn attestation_info(&self) -> &AttestationInfo {
@@ -96,7 +96,7 @@ impl State {
                 .await
                 .context("Getting attestation info")?;
             tracing::info!(?attestation_info, "New epoch started");
-            State::from_attestation_info(attestation_info)?
+            State::from_attestation_info(attestation_info)
         };
 
         Ok(match state {

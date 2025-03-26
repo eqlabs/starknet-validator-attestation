@@ -12,7 +12,7 @@ pub struct AttestationInfo {
 }
 
 impl AttestationInfo {
-    pub fn calculate_expected_attestation_block(&self) -> anyhow::Result<u64> {
+    pub fn calculate_expected_attestation_block(&self) -> u64 {
         let mut h = PoseidonHasher::new();
         h.update(self.stake.into());
         h.update(self.epoch_id.into());
@@ -22,10 +22,11 @@ impl AttestationInfo {
         let modulus = Felt::from(self.epoch_len - self.attestation_window as u64);
 
         let block_offset: u64 = hash
-            .div_rem(&NonZeroFelt::try_from(modulus)?)
+            .div_rem(&NonZeroFelt::try_from(modulus).expect("Modulus is not zero"))
             .1
-            .try_into()?;
+            .try_into()
+            .expect("Modulus is less than u64::MAX");
 
-        Ok(self.current_epoch_starting_block + block_offset)
+        self.current_epoch_starting_block + block_offset
     }
 }

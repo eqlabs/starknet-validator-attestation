@@ -31,9 +31,12 @@ pub async fn fetch(
                 serde_json::from_str(&text).context("Parsing new block header notification")?;
             match notification.method {
                 subscription::NotificationMethod::NewHeadsNotification(params) => {
-                    tx.send(params.result)
-                        .await
-                        .context("Sending new block header to channel")?;
+                    tracing::trace!(?params, "Received new header notification");
+                    if params.subscription_id == subscription_id {
+                        tx.send(params.result)
+                            .await
+                            .context("Sending new block header to channel")?;
+                    }
                 }
                 subscription::NotificationMethod::EventsNotification(_) => {
                     tracing::warn!("Received events notification, but not handling it");

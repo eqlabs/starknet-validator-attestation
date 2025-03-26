@@ -52,6 +52,11 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Current epoch length"
     );
+    metrics::describe_gauge!(
+        "validator_attestation_current_epoch_assigned_block_number",
+        metrics::Unit::Count,
+        "Block number to attest in current epoch"
+    );
 
     // Attestation
     metrics::describe_gauge!(

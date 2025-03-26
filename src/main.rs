@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Getting attestation info")?;
     tracing::debug!(?attestation_info, "Current attestation info");
-    let mut state = state::State::from_attestation_info(attestation_info)?;
+    let mut state = state::State::from_attestation_info(attestation_info);
 
     loop {
         select! {

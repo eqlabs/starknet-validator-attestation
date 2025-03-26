@@ -32,7 +32,7 @@ impl From<ProviderError> for ClientError {
                     let message = contract_execution_error_message(&data.execution_error);
                     ClientError::AttestationFailed(format!("Transaction rejected: {message}"))
                 }
-                _ => ClientError::AttestationFailed(error.to_string()),
+                _ => ClientError::AttestationFailed(format!("Starknet error: {error:?}")),
             },
             _ => ClientError::Other(error.into()),
         }
