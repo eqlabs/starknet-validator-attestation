@@ -14,9 +14,16 @@ pub struct AttestationParams {
 }
 
 impl AttestationParams {
-    pub fn in_window(&self, block_number: u64) -> bool {
-        block_number >= self.start_of_attestation_window
-            && block_number < self.end_of_attestation_window
+    pub fn in_window(&self, block_number: u64) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        if block_number < self.start_of_attestation_window {
+            Ordering::Less
+        } else if block_number >= self.end_of_attestation_window {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
     }
 }
 
@@ -131,8 +138,12 @@ impl State {
             State::WaitingForAttestationWindow {
                 attestation_info,
                 attestation_params,
-            } => {
-                if attestation_params.in_window(block_number) {
+            } => match attestation_params.in_window(block_number) {
+                Ordering::Less => State::WaitingForAttestationWindow {
+                    attestation_info,
+                    attestation_params,
+                },
+                Ordering::Equal => {
                     let attestation_done = client
                         .attestation_done_in_current_epoch(attestation_info.staker_address)
                         .await
@@ -158,13 +169,12 @@ impl State {
                         tracing::debug!("Attestation already done");
                         State::WaitingForNextEpoch { attestation_info }
                     }
-                } else {
-                    State::WaitingForAttestationWindow {
-                        attestation_info,
-                        attestation_params,
-                    }
                 }
-            }
+                Ordering::Greater => {
+                    tracing::debug!("We're past the attestation window");
+                    State::WaitingForNextEpoch { attestation_info }
+                }
+            },
             State::WaitingForNextEpoch { attestation_info } => {
                 State::WaitingForNextEpoch { attestation_info }
             }
