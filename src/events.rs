@@ -46,7 +46,7 @@ pub async fn fetch(
                 subscription::NotificationMethod::EventsNotification(params) => {
                     tracing::trace!(?params, "Received events notification");
                     if params.subscription_id == subscription_id {
-                        let selector = params.result.keys.get(0).unwrap_or(&Felt::ZERO);
+                        let selector = params.result.keys.first().unwrap_or(&Felt::ZERO);
 
                         if *selector == staker_attestation_successful_selector {
                             match parse_staker_attestation_successful(&params.result) {
@@ -73,11 +73,11 @@ pub async fn fetch(
 
 fn parse_staker_attestation_successful(event: &EmittedEvent) -> anyhow::Result<AttestationEvent> {
     let staker_address = *event.keys.get(1).context("Getting staker address")?;
-    let epoch_id = u64::try_from(*event.data.get(0).context("Getting epoch ID")?)
+    let epoch_id = u64::try_from(*event.data.first().context("Getting epoch ID")?)
         .context("Parsing epoch ID")?;
 
     Ok(AttestationEvent::StakerAttestationSuccessful {
         staker_address,
-        epoch_id: epoch_id.clone(),
+        epoch_id,
     })
 }
