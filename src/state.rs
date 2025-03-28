@@ -162,7 +162,7 @@ impl State {
                         let result = client.attest(signer, attestation_params.block_hash).await;
                         match result {
                             Ok(transaction_hash) => {
-                                tracing::info!(?transaction_hash, "Sent attestation transaction");
+                                tracing::info!(?transaction_hash, "Attestation transaction sent");
 
                                 metrics::gauge!(
                                     "validator_attestation_last_attestation_timestamp_seconds"
@@ -172,9 +172,17 @@ impl State {
                                         .duration_since(SystemTime::UNIX_EPOCH)?
                                         .as_secs_f64(),
                                 );
+                                metrics::counter!(
+                                    "validator_attestation_attestation_submitted_count"
+                                )
+                                .increment(1);
                             }
                             Err(err) => {
                                 tracing::error!(error = %err, "Failed to send attestation transaction");
+                                metrics::counter!(
+                                    "validator_attestation_attestation_failure_count"
+                                )
+                                .increment(1);
                             }
                         };
                         State::Attesting {
@@ -212,6 +220,7 @@ impl State {
             && attestation_info.epoch_id == epoch_id
         {
             tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
+            metrics::counter!("validator_attestation_attestation_confirmed_count").increment(1);
             Self::WaitingForNextEpoch {
                 attestation_info: attestation_info.clone(),
             }

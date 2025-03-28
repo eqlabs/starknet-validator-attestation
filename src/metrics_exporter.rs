@@ -64,4 +64,19 @@ fn describe_metrics() {
         metrics::Unit::Seconds,
         "Timestamp of the last attestation"
     );
+    metrics::describe_counter!(
+        "validator_attestation_attestation_submitted_count",
+        metrics::Unit::Count,
+        "Number of successfuly submitted attestations"
+    );
+    metrics::describe_counter!(
+        "validator_attestation_attestation_failure_count",
+        metrics::Unit::Count,
+        "Number of failed attestations"
+    );
+    metrics::describe_counter!(
+        "validator_attestation_attestation_confirmed_count",
+        metrics::Unit::Count,
+        "Number of confirmed attestations"
+    );
 }
