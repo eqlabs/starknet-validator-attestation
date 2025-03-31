@@ -152,7 +152,16 @@ async fn main() -> anyhow::Result<()> {
         .get_attestation_info(config.staker_operational_address)
         .await
         .context("Getting attestation info")?;
-    tracing::info!(?attestation_info, "Current attestation info");
+    tracing::info!(
+        staker_address=?attestation_info.staker_address,
+        operational_address=?attestation_info.operational_address,
+        stake=%attestation_info.stake,
+        epoch_id=%attestation_info.epoch_id,
+        epoch_start=%attestation_info.current_epoch_starting_block,
+        epoch_length=%attestation_info.epoch_len,
+        attestation_window=%attestation_info.attestation_window,
+        "Current attestation info"
+    );
     let mut state = state::State::from_attestation_info(attestation_info);
 
     loop {
@@ -222,7 +231,16 @@ async fn main() -> anyhow::Result<()> {
                             .await
                             .context("Getting attestation info")
                         {
-                            tracing::info!(?attestation_info, "Current attestation info");
+                            tracing::info!(
+                                staker_address=?attestation_info.staker_address,
+                                operational_address=?attestation_info.operational_address,
+                                stake=%attestation_info.stake,
+                                epoch_id=%attestation_info.epoch_id,
+                                epoch_start=%attestation_info.current_epoch_starting_block,
+                                epoch_length=%attestation_info.epoch_len,
+                                attestation_window=%attestation_info.attestation_window,
+                                "Current attestation info"
+                            );
                             state = state::State::from_attestation_info(attestation_info);
                         } else {
                             tracing::error!("Failed to get attestation info, retrying");
