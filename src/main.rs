@@ -145,8 +145,22 @@ async fn main() -> anyhow::Result<()> {
     tracing::debug!(?attestation_info, "Current attestation info");
     let mut state = state::State::from_attestation_info(attestation_info);
 
+    // Handle TERM and INT signals
+    let mut term_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("Setting up TERM signal handler")?;
+    let mut int_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .context("Setting up INT signal handler")?;
+
     loop {
         select! {
+            _ = term_signal.recv() => {
+                tracing::info!("Received TERM signal, shutting down");
+                break;
+            }
+            _ = int_signal.recv() => {
+                tracing::info!("Received INT signal, shutting down");
+                break;
+            }
             block_fetcher_result = &mut new_block_fetcher_handle => {
                 tracing::error!(error=?block_fetcher_result, "New block fetcher task has exited, restarting");
                 let new_block_fetcher_fut = headers::fetch(node_websocket_url.clone(), new_heads_tx.clone());
@@ -198,4 +212,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    tracing::info!("Stopped");
+
+    Ok(())
 }
