@@ -4,6 +4,7 @@ use starknet_crypto::{Felt, PoseidonHasher};
 #[derive(Clone, Debug)]
 pub struct AttestationInfo {
     pub staker_address: Felt,
+    pub operational_address: Felt,
     pub stake: u128,
     pub epoch_len: u64,
     pub epoch_id: u64,

@@ -6,6 +6,12 @@ use starknet_crypto::Felt;
 
 use crate::{attestation_info::AttestationInfo, events::AttestationEvent};
 
+/// Minimum attestation window.
+///
+/// The block hash to attest must be available at the start of the attestation window.
+/// On Starknet, block hash of block N becomes available at block N + 10.
+const MIN_ATTESTATION_WINDOW: u64 = 10;
+
 #[derive(Clone, Debug)]
 pub struct AttestationParams {
     block_hash: Felt,
@@ -83,6 +89,7 @@ impl State {
     pub async fn handle_new_block_header<C: crate::jsonrpc::Client>(
         self,
         client: &C,
+        operational_address: Felt,
         signer: &LocalWallet,
         block_number: u64,
         block_hash: Felt,
@@ -92,7 +99,7 @@ impl State {
             self
         } else {
             let attestation_info = client
-                .get_attestation_info(crate::config::STAKER_OPERATIONAL_ADDRESS)
+                .get_attestation_info(operational_address)
                 .await
                 .context("Getting attestation info")?;
             tracing::info!(?attestation_info, "New epoch started");
@@ -116,8 +123,7 @@ impl State {
                         attestation_info,
                         attestation_params: AttestationParams {
                             block_hash,
-                            start_of_attestation_window: block_number
-                                + crate::config::MIN_ATTESTATION_WINDOW,
+                            start_of_attestation_window: block_number + MIN_ATTESTATION_WINDOW,
                             end_of_attestation_window: block_number + attestation_window as u64,
                         },
                     }
@@ -135,7 +141,7 @@ impl State {
                                 attestation_params: AttestationParams {
                                     block_hash,
                                     start_of_attestation_window: block_to_attest
-                                        + crate::config::MIN_ATTESTATION_WINDOW,
+                                        + MIN_ATTESTATION_WINDOW,
                                     end_of_attestation_window: block_to_attest
                                         + attestation_window as u64,
                                 },
@@ -159,7 +165,13 @@ impl State {
 
                     if !attestation_done {
                         tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
-                        let result = client.attest(signer, attestation_params.block_hash).await;
+                        let result = client
+                            .attest(
+                                attestation_info.operational_address,
+                                signer,
+                                attestation_params.block_hash,
+                            )
+                            .await;
                         match result {
                             Ok(transaction_hash) => {
                                 tracing::info!(?transaction_hash, "Attestation transaction sent");

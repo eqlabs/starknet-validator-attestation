@@ -14,6 +14,7 @@ pub enum AttestationEvent {
 
 pub async fn fetch(
     url: Url,
+    attestation_contract_address: Felt,
     tx: tokio::sync::mpsc::Sender<AttestationEvent>,
 ) -> anyhow::Result<()> {
     let staker_attestation_successful_selector =
@@ -21,7 +22,7 @@ pub async fn fetch(
     let (mut client, subscription_id) = subscription::subscribe(
         url,
         subscription::SubscriptionMethod::SubscribeEvents {
-            from_address: Some(crate::config::ATTESTATION_CONTRACT_ADDRESS),
+            from_address: Some(attestation_contract_address),
             keys: vec![vec![staker_attestation_successful_selector]],
             block_id: None,
         },

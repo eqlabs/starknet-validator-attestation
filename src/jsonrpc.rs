@@ -58,7 +58,12 @@ impl<E: std::error::Error + Send + Sync + 'static> From<AccountError<E>> for Cli
 }
 
 pub trait Client {
-    async fn attest(&self, signer: &LocalWallet, block_hash: Felt) -> Result<Felt, ClientError>;
+    async fn attest(
+        &self,
+        operational_address: Felt,
+        signer: &LocalWallet,
+        block_hash: Felt,
+    ) -> Result<Felt, ClientError>;
     async fn attestation_done_in_current_epoch(
         &self,
         staker_address: Felt,
@@ -72,15 +77,24 @@ pub trait Client {
 
 pub struct StarknetRpcClient {
     client: JsonRpcClient<HttpTransport>,
+    staking_contract_address: Felt,
+    attestation_contract_address: Felt,
 }
 
 impl Client for StarknetRpcClient {
-    async fn attest(&self, signer: &LocalWallet, block_hash: Felt) -> Result<Felt, ClientError> {
+    async fn attest(
+        &self,
+        operational_address: Felt,
+        signer: &LocalWallet,
+        block_hash: Felt,
+    ) -> Result<Felt, ClientError> {
+        let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
+
         let mut account = SingleOwnerAccount::new(
             &self.client,
             signer,
-            crate::config::STAKER_OPERATIONAL_ADDRESS,
-            starknet::core::chain_id::SEPOLIA,
+            operational_address,
+            chain_id,
             starknet::accounts::ExecutionEncoding::New,
         );
 
@@ -88,7 +102,7 @@ impl Client for StarknetRpcClient {
 
         let result = account
             .execute_v3(vec![starknet::core::types::Call {
-                to: crate::config::ATTESTATION_CONTRACT_ADDRESS,
+                to: self.attestation_contract_address,
                 selector: get_selector_from_name("attest").unwrap(),
                 calldata: vec![block_hash],
             }])
@@ -106,7 +120,7 @@ impl Client for StarknetRpcClient {
             .client
             .call(
                 FunctionCall {
-                    contract_address: crate::config::ATTESTATION_CONTRACT_ADDRESS,
+                    contract_address: self.attestation_contract_address,
                     entry_point_selector: get_selector_from_name(
                         "is_attestation_done_in_curr_epoch",
                     )
@@ -129,7 +143,7 @@ impl Client for StarknetRpcClient {
             .client
             .call(
                 FunctionCall {
-                    contract_address: crate::config::STAKING_CONTRACT_ADDRESS,
+                    contract_address: self.staking_contract_address,
                     entry_point_selector: get_selector_from_name(
                         "get_attestation_info_by_operational_address",
                     )
@@ -148,6 +162,7 @@ impl Client for StarknetRpcClient {
 
         Ok(AttestationInfo {
             staker_address: attestation_info[0],
+            operational_address,
             stake: attestation_info[1].try_into().context("Converting stake")?,
             epoch_len: attestation_info[2]
                 .try_into()
@@ -179,9 +194,15 @@ impl Client for StarknetRpcClient {
 }
 
 impl StarknetRpcClient {
-    pub fn new(url: Url) -> Self {
+    pub fn new(
+        url: Url,
+        staking_contract_address: Felt,
+        attestation_contract_address: Felt,
+    ) -> Self {
         StarknetRpcClient {
             client: JsonRpcClient::new(HttpTransport::new(url)),
+            staking_contract_address,
+            attestation_contract_address,
         }
     }
 
@@ -190,7 +211,7 @@ impl StarknetRpcClient {
             .client
             .call(
                 FunctionCall {
-                    contract_address: crate::config::ATTESTATION_CONTRACT_ADDRESS,
+                    contract_address: self.attestation_contract_address,
                     entry_point_selector: get_selector_from_name("attestation_window").unwrap(),
                     calldata: vec![],
                 },
@@ -203,5 +224,12 @@ impl StarknetRpcClient {
             .try_into()
             .context("Converting attestation window")?;
         Ok(attestation_window)
+    }
+
+    pub async fn chain_id(&self) -> Result<String, ClientError> {
+        let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
+        let chain_id = starknet::core::utils::parse_cairo_short_string(&chain_id)
+            .context("Parsing chain ID as Cairo short string")?;
+        Ok(chain_id)
     }
 }
