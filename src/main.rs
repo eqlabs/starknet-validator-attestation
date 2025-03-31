@@ -18,23 +18,50 @@ mod subscription;
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Config {
-    #[arg(long, long_help = "The address of the staking contract")]
+    #[arg(
+        long,
+        long_help = "The address of the staking contract",
+        value_name = "ADDRESS",
+        env = "VALIDATOR_ATTESTATION_STAKING_CONTRACT_ADDRESS"
+    )]
     staking_contract_address: Felt,
-    #[arg(long, long_help = "The address of the attestation contract")]
+    #[arg(
+        long,
+        long_help = "The address of the attestation contract",
+        value_name = "ADDRESS",
+        env = "VALIDATOR_ATTESTATION_ATTESTATION_CONTRACT_ADDRESS"
+    )]
     attestation_contract_address: Felt,
 
-    #[arg(long, long_help = "The address of the staker's operational account")]
+    #[arg(
+        long,
+        long_help = "The address of the staker's operational account",
+        value_name = "ADDRESS",
+        env = "VALIDATOR_ATTESTATION_STAKER_OPERATIONAL_ADDRESS"
+    )]
     staker_operational_address: Felt,
 
-    #[arg(long, long_help = "The URL of the node's WebSocket endpoint")]
-    pub node_url_ws: Url,
-    #[arg(long, long_help = "The URL of the node's HTTP endpoint")]
-    pub node_url_http: Url,
+    #[arg(
+        long,
+        long_help = "The URL of the node's WebSocket endpoint",
+        value_name = "URL",
+        env = "VALIDATOR_ATTESTATION_STARKNET_NODE_WEBSOCKET_URL"
+    )]
+    pub node_websocket_url: Url,
+    #[arg(
+        long,
+        long_help = "The URL of the node's HTTP endpoint",
+        value_name = "URL",
+        env = "VALIDATOR_ATTESTATION_STARKNET_NODE_HTTP_URL"
+    )]
+    pub node_http_url: Url,
 
     #[arg(
         long,
         long_help = "The address to bind the metrics server to. You can scrape metrics from the '/metrics' path on this address.",
-        default_value = "127.0.0.1:9090"
+        default_value = "127.0.0.1:9090",
+        value_name = "IP:PORT",
+        env = "VALIDATOR_ATTESTATION_METRICS_ADDRESS"
     )]
     pub metrics_address: String,
 }
@@ -53,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting up");
 
     let client = jsonrpc::StarknetRpcClient::new(
-        config.node_url_http,
+        config.node_http_url,
         config.staking_contract_address,
         config.attestation_contract_address,
     );
@@ -76,13 +103,13 @@ async fn main() -> anyhow::Result<()> {
     // Set up block and event fetchers
     let (new_heads_tx, mut new_heads_rx) = tokio::sync::mpsc::channel(10);
     let mut new_block_fetcher_handle = tokio::task::spawn(headers::fetch(
-        config.node_url_ws.clone(),
+        config.node_websocket_url.clone(),
         new_heads_tx.clone(),
     ));
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(10);
     let mut events_fetcher_handle = tokio::task::spawn(events::fetch(
-        config.node_url_ws.clone(),
+        config.node_websocket_url.clone(),
         config.attestation_contract_address,
         events_tx.clone(),
     ));
@@ -99,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
         select! {
             block_fetcher_result = &mut new_block_fetcher_handle => {
                 tracing::error!(error=?block_fetcher_result, "New block fetcher task has exited, restarting");
-                let new_block_fetcher_fut = headers::fetch(config.node_url_ws.clone(), new_heads_tx.clone());
+                let new_block_fetcher_fut = headers::fetch(config.node_websocket_url.clone(), new_heads_tx.clone());
                 new_block_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     new_block_fetcher_fut.await
@@ -107,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
             }
             events_fetcher_result = &mut events_fetcher_handle => {
                 tracing::error!(error=?events_fetcher_result, "Events fetcher task has exited, restarting");
-                let events_fetcher_fut = events::fetch(config.node_url_ws.clone(), config.attestation_contract_address, events_tx.clone());
+                let events_fetcher_fut = events::fetch(config.node_websocket_url.clone(), config.attestation_contract_address, events_tx.clone());
                 events_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     events_fetcher_fut.await
