@@ -4,7 +4,6 @@ use jsonrpc::Client;
 use starknet::signers::{LocalWallet, SigningKey};
 use starknet_crypto::Felt;
 use tokio::select;
-use tracing_subscriber::prelude::*;
 use url::Url;
 
 mod attestation_info;
@@ -57,6 +56,15 @@ struct Config {
         env = "VALIDATOR_ATTESTATION_METRICS_ADDRESS"
     )]
     pub metrics_address: String,
+
+    #[arg(long, default_value = "compact", value_name = "FORMAT")]
+    pub log_format: LogFormat,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum LogFormat {
+    Compact,
+    Json,
 }
 
 const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
@@ -65,10 +73,17 @@ const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5
 async fn main() -> anyhow::Result<()> {
     let config = Config::parse();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    // Set up logging
+    match config.log_format {
+        LogFormat::Compact => {
+            let format = tracing_subscriber::fmt::format().compact();
+            tracing_subscriber::fmt().event_format(format).init();
+        }
+        LogFormat::Json => {
+            let format = tracing_subscriber::fmt::format().json();
+            tracing_subscriber::fmt().event_format(format).init();
+        }
+    };
 
     tracing::info!("Starting up");
 
