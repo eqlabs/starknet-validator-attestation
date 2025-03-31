@@ -7,7 +7,8 @@ use crate::subscription;
 
 pub async fn fetch(
     url: Url,
-    tx: tokio::sync::mpsc::Sender<subscription::NewHeader>,
+    headers_tx: tokio::sync::mpsc::Sender<subscription::NewHeader>,
+    reorg_tx: tokio::sync::mpsc::Sender<subscription::ReorgData>,
 ) -> anyhow::Result<()> {
     let (mut client, subscription_id) = subscription::subscribe(
         url.clone(),
@@ -33,9 +34,20 @@ pub async fn fetch(
                 subscription::NotificationMethod::NewHeadsNotification(params) => {
                     tracing::trace!(?params, "Received new header notification");
                     if params.subscription_id == subscription_id {
-                        tx.send(params.result)
+                        headers_tx
+                            .send(params.result)
                             .await
                             .context("Sending new block header to channel")?;
+                    }
+                }
+                subscription::NotificationMethod::ReorgNotification(params) => {
+                    tracing::trace!(?params, "Received reorg notification");
+                    if params.subscription_id == subscription_id {
+                        tracing::debug!(?params, "Received reorg notification");
+                        reorg_tx
+                            .send(params.result)
+                            .await
+                            .context("Sending reorg notification to channel")?;
                     }
                 }
                 subscription::NotificationMethod::EventsNotification(_) => {

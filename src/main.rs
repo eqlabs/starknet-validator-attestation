@@ -124,10 +124,13 @@ async fn main() -> anyhow::Result<()> {
         .set_scheme(ws_scheme)
         .map_err(|_| anyhow::anyhow!("Failed to construct WebSocket URL"))?;
 
+    let (reorg_tx, mut reorg_rx) = tokio::sync::mpsc::channel(10);
+
     let (new_heads_tx, mut new_heads_rx) = tokio::sync::mpsc::channel(10);
     let mut new_block_fetcher_handle = tokio::task::spawn(headers::fetch(
         node_websocket_url.clone(),
         new_heads_tx.clone(),
+        reorg_tx.clone(),
     ));
 
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(10);
@@ -135,21 +138,22 @@ async fn main() -> anyhow::Result<()> {
         node_websocket_url.clone(),
         config.attestation_contract_address,
         events_tx.clone(),
+        reorg_tx.clone(),
     ));
-
-    // Initialize state
-    let attestation_info = client
-        .get_attestation_info(config.staker_operational_address)
-        .await
-        .context("Getting attestation info")?;
-    tracing::debug!(?attestation_info, "Current attestation info");
-    let mut state = state::State::from_attestation_info(attestation_info);
 
     // Handle TERM and INT signals
     let mut term_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .context("Setting up TERM signal handler")?;
     let mut int_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
         .context("Setting up INT signal handler")?;
+
+    // Initialize state
+    let attestation_info = client
+        .get_attestation_info(config.staker_operational_address)
+        .await
+        .context("Getting attestation info")?;
+    tracing::info!(?attestation_info, "Current attestation info");
+    let mut state = state::State::from_attestation_info(attestation_info);
 
     loop {
         select! {
@@ -163,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
             }
             block_fetcher_result = &mut new_block_fetcher_handle => {
                 tracing::error!(error=?block_fetcher_result, "New block fetcher task has exited, restarting");
-                let new_block_fetcher_fut = headers::fetch(node_websocket_url.clone(), new_heads_tx.clone());
+                let new_block_fetcher_fut = headers::fetch(node_websocket_url.clone(), new_heads_tx.clone(), reorg_tx.clone());
                 new_block_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     new_block_fetcher_fut.await
@@ -171,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
             }
             events_fetcher_result = &mut events_fetcher_handle => {
                 tracing::error!(error=?events_fetcher_result, "Events fetcher task has exited, restarting");
-                let events_fetcher_fut = events::fetch(node_websocket_url.clone(), config.attestation_contract_address, events_tx.clone());
+                let events_fetcher_fut = events::fetch(node_websocket_url.clone(), config.attestation_contract_address, events_tx.clone(), reorg_tx.clone());
                 events_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     events_fetcher_fut.await
@@ -183,7 +187,6 @@ async fn main() -> anyhow::Result<()> {
                         tracing::debug!("Received new block header: {:?}", header);
                         metrics::gauge!("validator_attestation_starknet_latest_block_number").set(header.block_number as f64);
 
-                        // FIXME: handle reorgs
                         let old_state = state.clone();
                         let result = state.handle_new_block_header(&client, config.staker_operational_address, &signer, header.block_number, header.block_hash).await;
                         match result {
@@ -208,6 +211,26 @@ async fn main() -> anyhow::Result<()> {
                         tracing::debug!(new_state=?state, "State transition complete");
                     },
                     None => tracing::warn!("New event channel closed"),
+                }
+            }
+            reorg = reorg_rx.recv() => {
+                match reorg {
+                    Some(reorg) => {
+                        tracing::debug!(?reorg, "Received reorg notification, reinitializing");
+                        if let Ok(attestation_info) = client
+                            .get_attestation_info(config.staker_operational_address)
+                            .await
+                            .context("Getting attestation info")
+                        {
+                            tracing::info!(?attestation_info, "Current attestation info");
+                            state = state::State::from_attestation_info(attestation_info);
+                        } else {
+                            tracing::error!("Failed to get attestation info, retrying");
+                            tokio::time::sleep(TASK_RESTART_DELAY).await;
+                            let _ = reorg_tx.send(reorg).await.context("Re-sending reorg notification");
+                        }
+                    },
+                    None => tracing::warn!("Reorg channel closed"),
                 }
             }
         }

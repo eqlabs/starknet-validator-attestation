@@ -52,6 +52,8 @@ pub enum NotificationMethod {
     NewHeadsNotification(NewHeadsNotificationParams),
     #[serde(rename = "starknet_subscriptionEvents")]
     EventsNotification(EventsNotificationParams),
+    #[serde(rename = "starknet_subscriptionReorg")]
+    ReorgNotification(ReorgNotificationParams),
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize)]
@@ -81,6 +83,19 @@ pub struct EmittedEvent {
     pub block_hash: Option<Felt>,
     pub block_number: u64,
     pub transaction_hash: Felt,
+}
+
+#[derive(Debug, PartialEq, serde::Deserialize)]
+pub struct ReorgNotificationParams {
+    pub result: ReorgData,
+    pub subscription_id: u64,
+}
+
+#[derive(Debug, PartialEq, serde::Deserialize)]
+pub struct ReorgData {
+    pub starting_block_number: u64,
+    pub ending_block_number: u64,
+    // There are other fields here in the notification that we're ignoring.
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -241,6 +256,36 @@ mod tests {
                     "from_address": "0xdeadbeef",
                     "keys": ["0x2", "0x3"],
                     "transaction_hash": "0x4",
+                },
+                "subscription_id": 0
+            }
+        });
+
+        let deserialized: SubscriptionNotification = serde_json::from_value(notification).unwrap();
+        assert_eq!(deserialized, expected);
+    }
+
+    #[test]
+    fn test_reorg_notification() {
+        let expected = SubscriptionNotification {
+            _jsonrpc: JsonRpcVersion::V2_0,
+            method: NotificationMethod::ReorgNotification(ReorgNotificationParams {
+                result: ReorgData {
+                    starting_block_number: 20,
+                    ending_block_number: 30,
+                },
+                subscription_id: 0,
+            }),
+        };
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "starknet_subscriptionReorg",
+            "params": {
+                "result": {
+                    "starting_block_number": 20,
+                    "starting_block_hash": "0xdeadbeef",
+                    "ending_block_number": 30,
+                    "ending_block_hash": "0xbeefdead"
                 },
                 "subscription_id": 0
             }

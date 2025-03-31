@@ -5,7 +5,7 @@ use starknet::core::utils::get_selector_from_name;
 use starknet_crypto::Felt;
 use url::Url;
 
-use crate::subscription::{self, EmittedEvent};
+use crate::subscription;
 
 #[derive(Debug)]
 pub enum AttestationEvent {
@@ -15,7 +15,8 @@ pub enum AttestationEvent {
 pub async fn fetch(
     url: Url,
     attestation_contract_address: Felt,
-    tx: tokio::sync::mpsc::Sender<AttestationEvent>,
+    event_tx: tokio::sync::mpsc::Sender<AttestationEvent>,
+    reorg_tx: tokio::sync::mpsc::Sender<subscription::ReorgData>,
 ) -> anyhow::Result<()> {
     let staker_attestation_successful_selector =
         get_selector_from_name("StakerAttestationSuccessful").expect("Event name should be valid");
@@ -51,7 +52,7 @@ pub async fn fetch(
 
                         if *selector == staker_attestation_successful_selector {
                             match parse_staker_attestation_successful(&params.result) {
-                                Ok(event) => tx
+                                Ok(event) => event_tx
                                     .send(event)
                                     .await
                                     .context("Sending new event to channel")?,
@@ -60,6 +61,16 @@ pub async fn fetch(
                         } else {
                             tracing::debug!(?params, "Received unknown event");
                         }
+                    }
+                }
+                subscription::NotificationMethod::ReorgNotification(params) => {
+                    tracing::trace!(?params, "Received reorg notification");
+                    if params.subscription_id == subscription_id {
+                        tracing::debug!(?params, "Received reorg notification");
+                        reorg_tx
+                            .send(params.result)
+                            .await
+                            .context("Sending reorg notification to channel")?;
                     }
                 }
                 subscription::NotificationMethod::NewHeadsNotification(_) => {
@@ -72,7 +83,9 @@ pub async fn fetch(
     }
 }
 
-fn parse_staker_attestation_successful(event: &EmittedEvent) -> anyhow::Result<AttestationEvent> {
+fn parse_staker_attestation_successful(
+    event: &subscription::EmittedEvent,
+) -> anyhow::Result<AttestationEvent> {
     let staker_address = *event.keys.get(1).context("Getting staker address")?;
     let epoch_id = u64::try_from(*event.data.first().context("Getting epoch ID")?)
         .context("Parsing epoch ID")?;
