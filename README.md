@@ -12,7 +12,7 @@ This is a tool for attesting validators on Starknet. Implements the attestation 
 
 ## Installation
 
-You can either use the Docker image we publish on [Docker Hub](https://hub.docker.com/r/eqlabs/starknet-validator-attestation) or compile the source code from this repository. Compilation requires Rust 1.85+.
+You can either use the Docker image we publish on [GitHub](https://github.com/eqlabs/starknet-validator-attestation/pkgs/container/starknet-validator-attestation) or compile the source code from this repository. Compilation requires Rust 1.85+.
 
 
 ## Running
@@ -20,7 +20,7 @@ You can either use the Docker image we publish on [Docker Hub](https://hub.docke
 ```shell
 docker run -it --rm \
   -e VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY="0xdeadbeef" \
-  eqlabs/starknet-validator-attestation \
+  ghcr.io/eqlabs/starknet-validator-attestation \
   --staking-contract-address 0x034370fc9931c636ab07b16ada82d60f05d32993943debe2376847e0921c1162 \
   --attestation-contract-address 0x04862e05d00f2d0981c4a912269c21ad99438598ab86b6e70d1cee267caaa78d \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
