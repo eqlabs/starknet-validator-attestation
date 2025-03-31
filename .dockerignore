@@ -2,3 +2,5 @@ Dockerfile
 .git
 # Rust temporary files
 target/
+# Rust toolchain
+rust-toolchain.toml
