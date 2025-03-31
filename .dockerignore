@@ -1,0 +1,4 @@
+Dockerfile
+.git
+# Rust temporary files
+target/
