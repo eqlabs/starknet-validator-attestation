@@ -1,7 +1,7 @@
 use starknet::core::types::NonZeroFelt;
 use starknet_crypto::{Felt, PoseidonHasher};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AttestationInfo {
     pub staker_address: Felt,
     pub operational_address: Felt,

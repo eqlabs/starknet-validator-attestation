@@ -9,7 +9,6 @@ use starknet::{
         utils::get_selector_from_name,
     },
     providers::{JsonRpcClient, Provider, ProviderError, jsonrpc::HttpTransport},
-    signers::LocalWallet,
 };
 use starknet_crypto::Felt;
 use url::Url;
@@ -58,10 +57,10 @@ impl<E: std::error::Error + Send + Sync + 'static> From<AccountError<E>> for Cli
 }
 
 pub trait Client {
-    async fn attest(
+    async fn attest<S: starknet::signers::Signer + Send + Sync + 'static>(
         &self,
         operational_address: Felt,
-        signer: &LocalWallet,
+        signer: &S,
         block_hash: Felt,
     ) -> Result<Felt, ClientError>;
     async fn attestation_done_in_current_epoch(
@@ -82,10 +81,10 @@ pub struct StarknetRpcClient {
 }
 
 impl Client for StarknetRpcClient {
-    async fn attest(
+    async fn attest<S: starknet::signers::Signer + Send + Sync + 'static>(
         &self,
         operational_address: Felt,
-        signer: &LocalWallet,
+        signer: &S,
         block_hash: Felt,
     ) -> Result<Felt, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;

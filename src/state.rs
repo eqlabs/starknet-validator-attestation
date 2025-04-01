@@ -1,7 +1,6 @@
 use std::{cmp::Ordering, time::SystemTime};
 
 use anyhow::Context;
-use starknet::signers::LocalWallet;
 use starknet_crypto::Felt;
 
 use crate::{attestation_info::AttestationInfo, events::AttestationEvent};
@@ -12,7 +11,7 @@ use crate::{attestation_info::AttestationInfo, events::AttestationEvent};
 /// On Starknet, block hash of block N becomes available at block N + 10.
 const MIN_ATTESTATION_WINDOW: u64 = 10;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AttestationParams {
     block_hash: Felt,
     start_of_attestation_window: u64,
@@ -86,11 +85,14 @@ impl State {
                 < attestation_info.current_epoch_starting_block + attestation_info.epoch_len
     }
 
-    pub async fn handle_new_block_header<C: crate::jsonrpc::Client>(
+    pub async fn handle_new_block_header<
+        C: crate::jsonrpc::Client + Send + Sync + 'static,
+        S: starknet::signers::Signer + Send + Sync + 'static,
+    >(
         self,
         client: &C,
         operational_address: Felt,
-        signer: &LocalWallet,
+        signer: &S,
         block_number: u64,
         block_hash: Felt,
     ) -> anyhow::Result<Self> {
@@ -248,6 +250,348 @@ impl State {
         } else {
             tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
             self
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use assert_matches::assert_matches;
+    use starknet::{
+        core::crypto::EcdsaSignError,
+        macros::felt,
+        signers::{Infallible, Signer, SignerInteractivityContext, SigningKey, VerifyingKey},
+    };
+    use starknet_crypto::Signature;
+
+    use crate::jsonrpc::ClientError;
+
+    use super::*;
+
+    #[test]
+    fn test_attestation_params_in_window() {
+        let attestation_params = AttestationParams {
+            block_hash: Felt::ZERO,
+            start_of_attestation_window: 10,
+            end_of_attestation_window: 20,
+        };
+
+        assert_eq!(attestation_params.in_window(5), Ordering::Less);
+        assert_eq!(attestation_params.in_window(10), Ordering::Equal);
+        assert_eq!(attestation_params.in_window(15), Ordering::Equal);
+        assert_eq!(attestation_params.in_window(20), Ordering::Greater);
+        assert_eq!(attestation_params.in_window(25), Ordering::Greater);
+    }
+
+    const STAKER_ADDRESS: Felt = felt!("0xdeadbeef");
+    const OPERATIONAL_ADDRESS: Felt = felt!("0xfeedbeef");
+    const STAKE: u128 = 1000;
+    const EPOCH_ID: u64 = 1;
+    const BLOCK_HASH: Felt = felt!("0x123456789abcdef");
+    const TRANSACTION_HASH: Felt = felt!("0xabcdef123456789");
+
+    #[tokio::test]
+    async fn test_normal_flow() {
+        let initial_attestation_info = AttestationInfo {
+            staker_address: STAKER_ADDRESS,
+            operational_address: OPERATIONAL_ADDRESS,
+            stake: STAKE,
+            epoch_id: EPOCH_ID,
+            current_epoch_starting_block: 0,
+            epoch_len: 40,
+            attestation_window: 20,
+        };
+        let initial_block_to_attest =
+            initial_attestation_info.calculate_expected_attestation_block();
+
+        let next_attestation_info = AttestationInfo {
+            epoch_id: EPOCH_ID + 1,
+            current_epoch_starting_block: initial_attestation_info.current_epoch_starting_block
+                + initial_attestation_info.epoch_len,
+            ..initial_attestation_info
+        };
+        let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
+
+        let client = MockClient::new(next_attestation_info.clone());
+        let signer = MockSigner::new();
+        let state = State::from_attestation_info(initial_attestation_info.clone());
+
+        // Block before the block to attest
+        let state = state
+            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .await
+            .unwrap();
+        assert_matches!(
+            &state,
+            State::BeforeBlockToAttest {
+                block_to_attest,
+                attestation_info
+            } if *block_to_attest == initial_block_to_attest && *attestation_info == initial_attestation_info
+        );
+
+        // Block to attest
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: initial_block_to_attest + initial_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+
+        // First block within the attestation window
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { .. });
+        assert!(client.attestation_sent());
+
+        // Confirmation event for the attestation
+        let state = state.handle_new_event(AttestationEvent::StakerAttestationSuccessful {
+            staker_address: STAKER_ADDRESS,
+            epoch_id: EPOCH_ID,
+        });
+        assert_matches!(state, State::WaitingForNextEpoch { .. });
+
+        // First block of next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_attestation_info.epoch_len,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::BeforeBlockToAttest { attestation_info, block_to_attest } if *attestation_info == next_attestation_info && *block_to_attest == next_block_to_attest);
+
+        // Block to attest in the next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                next_attestation_info.calculate_expected_attestation_block(),
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: next_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: next_block_to_attest + next_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+    }
+
+    #[tokio::test]
+    async fn test_starting_up_after_block_to_attest() {
+        let initial_attestation_info = AttestationInfo {
+            staker_address: STAKER_ADDRESS,
+            operational_address: OPERATIONAL_ADDRESS,
+            stake: STAKE,
+            epoch_id: EPOCH_ID,
+            current_epoch_starting_block: 0,
+            epoch_len: 40,
+            attestation_window: 20,
+        };
+        let initial_block_to_attest =
+            initial_attestation_info.calculate_expected_attestation_block();
+
+        let next_attestation_info = AttestationInfo {
+            epoch_id: EPOCH_ID + 1,
+            current_epoch_starting_block: initial_attestation_info.current_epoch_starting_block
+                + initial_attestation_info.epoch_len,
+            ..initial_attestation_info
+        };
+        let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
+
+        let client = MockClient::new(next_attestation_info.clone());
+        let signer = MockSigner::new();
+        let state = State::from_attestation_info(initial_attestation_info.clone());
+
+        // Block after the block to attest
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + 1,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: initial_block_to_attest + initial_attestation_info.attestation_window as u64,
+        });
+        assert!(client.block_hash_queried());
+        assert!(!client.attestation_sent());
+
+        // First block within the attestation window
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { .. });
+        assert!(client.attestation_sent());
+
+        // Confirmation event for the attestation
+        let state = state.handle_new_event(AttestationEvent::StakerAttestationSuccessful {
+            staker_address: STAKER_ADDRESS,
+            epoch_id: EPOCH_ID,
+        });
+        assert_matches!(state, State::WaitingForNextEpoch { .. });
+
+        // First block of next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_attestation_info.epoch_len,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::BeforeBlockToAttest { attestation_info, block_to_attest } if *attestation_info == next_attestation_info && *block_to_attest == next_block_to_attest);
+
+        // Block to attest in the next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                next_attestation_info.calculate_expected_attestation_block(),
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: next_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: next_block_to_attest + next_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+    }
+
+    struct MockClient {
+        attestation_info: AttestationInfo,
+        attestation_sent: AtomicBool,
+        block_hash_queried: AtomicBool,
+    }
+
+    impl MockClient {
+        fn new(attestation_info: AttestationInfo) -> Self {
+            MockClient {
+                attestation_info,
+                attestation_sent: AtomicBool::new(false),
+                block_hash_queried: AtomicBool::new(false),
+            }
+        }
+
+        fn attestation_sent(&self) -> bool {
+            self.attestation_sent
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        fn block_hash_queried(&self) -> bool {
+            self.block_hash_queried
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    impl crate::jsonrpc::Client for MockClient {
+        async fn get_attestation_info(
+            &self,
+            _operational_address: Felt,
+        ) -> Result<AttestationInfo, ClientError> {
+            self.attestation_sent
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(self.attestation_info.clone())
+        }
+
+        async fn get_block_hash(&self, _block_number: u64) -> Result<Felt, ClientError> {
+            self.block_hash_queried
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(BLOCK_HASH)
+        }
+
+        async fn attest<S: Signer>(
+            &self,
+            operational_address: Felt,
+            _signer: &S,
+            block_hash: Felt,
+        ) -> Result<Felt, ClientError> {
+            assert_eq!(operational_address, OPERATIONAL_ADDRESS);
+            assert_eq!(block_hash, BLOCK_HASH);
+
+            self.attestation_sent
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(TRANSACTION_HASH)
+        }
+
+        async fn attestation_done_in_current_epoch(
+            &self,
+            staker_address: Felt,
+        ) -> Result<bool, ClientError> {
+            assert_eq!(self.attestation_info.staker_address, staker_address);
+
+            Ok(false)
+        }
+    }
+
+    struct MockSigner(SigningKey);
+
+    impl MockSigner {
+        fn new() -> Self {
+            MockSigner(SigningKey::from_secret_scalar(felt!("0xdeadbeef")))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Signer for MockSigner {
+        type GetPublicKeyError = Infallible;
+        type SignError = EcdsaSignError;
+
+        async fn get_public_key(&self) -> Result<VerifyingKey, Self::GetPublicKeyError> {
+            Ok(self.0.verifying_key())
+        }
+
+        async fn sign_hash(&self, hash: &Felt) -> Result<Signature, Self::SignError> {
+            self.0.sign(hash)
+        }
+
+        fn is_interactive(&self, _context: SignerInteractivityContext<'_>) -> bool {
+            false
         }
     }
 }
