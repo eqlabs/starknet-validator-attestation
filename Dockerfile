@@ -28,3 +28,7 @@ ENV RUST_LOG="info"
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/starknet-validator-attestation"]
 CMD []
+
+LABEL org.opencontainers.image.source=https://github.com/eqlabs/starknet-validator-attestation
+LABEL org.opencontainers.image.description="Starknet Staking v2 validator attestation tool"
+LABEL org.opencontainers.image.licenses=Apache-2.0
