@@ -31,7 +31,7 @@ pub async fn fetch(
             let notification: subscription::SubscriptionNotification =
                 serde_json::from_str(&text).context("Parsing new block header notification")?;
             match notification.method {
-                subscription::NotificationMethod::NewHeadsNotification(params) => {
+                subscription::NotificationMethod::NewHeads(params) => {
                     tracing::trace!(?params, "Received new header notification");
                     if params.subscription_id == subscription_id {
                         headers_tx
@@ -40,7 +40,7 @@ pub async fn fetch(
                             .context("Sending new block header to channel")?;
                     }
                 }
-                subscription::NotificationMethod::ReorgNotification(params) => {
+                subscription::NotificationMethod::Reorg(params) => {
                     tracing::trace!(?params, "Received reorg notification");
                     if params.subscription_id == subscription_id {
                         tracing::debug!(?params, "Received reorg notification");
@@ -50,7 +50,7 @@ pub async fn fetch(
                             .context("Sending reorg notification to channel")?;
                     }
                 }
-                subscription::NotificationMethod::EventsNotification(_) => {
+                subscription::NotificationMethod::Events(_) => {
                     tracing::warn!("Received events notification, but not handling it");
                 }
             }

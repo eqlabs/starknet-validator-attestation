@@ -49,11 +49,11 @@ pub struct SubscriptionNotification {
 #[serde(tag = "method", content = "params")]
 pub enum NotificationMethod {
     #[serde(rename = "starknet_subscriptionNewHeads")]
-    NewHeadsNotification(NewHeadsNotificationParams),
+    NewHeads(NewHeadsNotificationParams),
     #[serde(rename = "starknet_subscriptionEvents")]
-    EventsNotification(EventsNotificationParams),
+    Events(EventsNotificationParams),
     #[serde(rename = "starknet_subscriptionReorg")]
-    ReorgNotification(ReorgNotificationParams),
+    Reorg(ReorgNotificationParams),
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize)]
@@ -204,7 +204,7 @@ mod tests {
     fn test_new_heads_notification() {
         let expected = SubscriptionNotification {
             _jsonrpc: JsonRpcVersion::V2_0,
-            method: NotificationMethod::NewHeadsNotification(NewHeadsNotificationParams {
+            method: NotificationMethod::NewHeads(NewHeadsNotificationParams {
                 result: NewHeader {
                     block_hash: Felt::ZERO,
                     block_number: 0,
@@ -233,7 +233,7 @@ mod tests {
     fn test_events_notification() {
         let expected = SubscriptionNotification {
             _jsonrpc: JsonRpcVersion::V2_0,
-            method: NotificationMethod::EventsNotification(EventsNotificationParams {
+            method: NotificationMethod::Events(EventsNotificationParams {
                 result: EmittedEvent {
                     from_address: felt!("0xdeadbeef"),
                     keys: vec![felt!("0x2"), felt!("0x3")],
@@ -269,7 +269,7 @@ mod tests {
     fn test_reorg_notification() {
         let expected = SubscriptionNotification {
             _jsonrpc: JsonRpcVersion::V2_0,
-            method: NotificationMethod::ReorgNotification(ReorgNotificationParams {
+            method: NotificationMethod::Reorg(ReorgNotificationParams {
                 result: ReorgData {
                     starting_block_number: 20,
                     ending_block_number: 30,
