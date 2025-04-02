@@ -4,6 +4,7 @@ use jsonrpc::Client;
 use starknet::signers::{LocalWallet, SigningKey};
 use starknet_crypto::Felt;
 use tokio::select;
+use tracing_subscriber::EnvFilter;
 use url::Url;
 
 mod attestation_info;
@@ -77,11 +78,17 @@ async fn main() -> anyhow::Result<()> {
     match config.log_format {
         LogFormat::Compact => {
             let format = tracing_subscriber::fmt::format().compact();
-            tracing_subscriber::fmt().event_format(format).init();
+            tracing_subscriber::fmt()
+                .event_format(format)
+                .with_env_filter(EnvFilter::from_default_env())
+                .init();
         }
         LogFormat::Json => {
             let format = tracing_subscriber::fmt::format().json();
-            tracing_subscriber::fmt().event_format(format).init();
+            tracing_subscriber::fmt()
+                .event_format(format)
+                .with_env_filter(EnvFilter::from_default_env())
+                .init();
         }
     };
 
