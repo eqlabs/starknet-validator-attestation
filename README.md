@@ -68,6 +68,8 @@ The API should expose two endpoints:
   }
   ```
 
+A toy implementation of the API is available [here](./examples/signer.rs).
+
 ## Monitoring
 
 A metrics endpoint is provided for scraping with Prometheus. By default the endpoint is available at `http://127.0.0.1:9090/metrics`. You can use the `--metrics-address` CLI option to change this address.
