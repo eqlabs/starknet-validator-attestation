@@ -13,7 +13,7 @@ use starknet::{
 use starknet_crypto::Felt;
 use url::Url;
 
-use crate::attestation_info::AttestationInfo;
+use crate::{attestation_info::AttestationInfo, signer::AttestationSigner};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -57,10 +57,10 @@ impl<E: std::error::Error + Send + Sync + 'static> From<AccountError<E>> for Cli
 }
 
 pub trait Client {
-    async fn attest<S: starknet::signers::Signer + Send + Sync + 'static>(
+    async fn attest(
         &self,
         operational_address: Felt,
-        signer: &S,
+        signer: &AttestationSigner,
         block_hash: Felt,
     ) -> Result<Felt, ClientError>;
     async fn attestation_done_in_current_epoch(
@@ -81,34 +81,60 @@ pub struct StarknetRpcClient {
 }
 
 impl Client for StarknetRpcClient {
-    async fn attest<S: starknet::signers::Signer + Send + Sync + 'static>(
+    async fn attest(
         &self,
         operational_address: Felt,
-        signer: &S,
+        signer: &AttestationSigner,
         block_hash: Felt,
     ) -> Result<Felt, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
 
-        let mut account = SingleOwnerAccount::new(
-            &self.client,
-            signer,
-            operational_address,
-            chain_id,
-            starknet::accounts::ExecutionEncoding::New,
-        );
+        let result = match signer {
+            AttestationSigner::Local(wallet) => {
+                let mut account = SingleOwnerAccount::new(
+                    &self.client,
+                    wallet,
+                    operational_address,
+                    chain_id,
+                    starknet::accounts::ExecutionEncoding::New,
+                );
 
-        account.set_block_id(BlockId::Tag(BlockTag::Pending));
+                account.set_block_id(BlockId::Tag(BlockTag::Pending));
 
-        let result = account
-            .execute_v3(vec![starknet::core::types::Call {
-                to: self.attestation_contract_address,
-                selector: get_selector_from_name("attest").unwrap(),
-                calldata: vec![block_hash],
-            }])
-            .gas_price_estimate_multiplier(3.0)
-            .gas_estimate_multiplier(3.0)
-            .send()
-            .await?;
+                account
+                    .execute_v3(vec![starknet::core::types::Call {
+                        to: self.attestation_contract_address,
+                        selector: get_selector_from_name("attest").unwrap(),
+                        calldata: vec![block_hash],
+                    }])
+                    .gas_price_estimate_multiplier(3.0)
+                    .gas_estimate_multiplier(3.0)
+                    .send()
+                    .await?
+            }
+            AttestationSigner::Remote(signer) => {
+                let mut account = SingleOwnerAccount::new(
+                    &self.client,
+                    signer,
+                    operational_address,
+                    chain_id,
+                    starknet::accounts::ExecutionEncoding::New,
+                );
+
+                account.set_block_id(BlockId::Tag(BlockTag::Pending));
+
+                account
+                    .execute_v3(vec![starknet::core::types::Call {
+                        to: self.attestation_contract_address,
+                        selector: get_selector_from_name("attest").unwrap(),
+                        calldata: vec![block_hash],
+                    }])
+                    .gas_price_estimate_multiplier(3.0)
+                    .gas_estimate_multiplier(3.0)
+                    .send()
+                    .await?
+            }
+        };
 
         Ok(result.transaction_hash)
     }

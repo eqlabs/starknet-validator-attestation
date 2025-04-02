@@ -3,12 +3,15 @@ use std::{cmp::Ordering, time::SystemTime};
 use anyhow::Context;
 use starknet_crypto::Felt;
 
-use crate::{attestation_info::AttestationInfo, events::AttestationEvent};
+use crate::{
+    attestation_info::AttestationInfo, events::AttestationEvent, signer::AttestationSigner,
+};
 
 /// Minimum attestation window.
 ///
-/// The block hash to attest must be available at the start of the attestation window.
-/// On Starknet, block hash of block N becomes available at block N + 10.
+/// The block hash to attest must be available at the start of the attestation
+/// window. On Starknet, block hash of block N becomes available at block N +
+/// 10.
 const MIN_ATTESTATION_WINDOW: u64 = 10;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,12 +90,12 @@ impl State {
 
     pub async fn handle_new_block_header<
         C: crate::jsonrpc::Client + Send + Sync + 'static,
-        S: starknet::signers::Signer + Send + Sync + 'static,
+        // S: starknet::signers::Signer + Send + Sync + 'static,
     >(
         self,
         client: &C,
         operational_address: Felt,
-        signer: &S,
+        signer: &AttestationSigner,
         block_number: u64,
         block_hash: Felt,
     ) -> anyhow::Result<Self> {
@@ -260,11 +263,9 @@ mod tests {
 
     use assert_matches::assert_matches;
     use starknet::{
-        core::crypto::EcdsaSignError,
         macros::felt,
-        signers::{Infallible, Signer, SignerInteractivityContext, SigningKey, VerifyingKey},
+        signers::{LocalWallet, SigningKey},
     };
-    use starknet_crypto::Signature;
 
     use crate::jsonrpc::ClientError;
 
@@ -306,7 +307,7 @@ mod tests {
         let initial_block_to_attest =
             initial_attestation_info.calculate_expected_attestation_block();
 
-        let next_attestation_info = AttestationInfo {
+        let next_attestation_info: AttestationInfo = AttestationInfo {
             epoch_id: EPOCH_ID + 1,
             current_epoch_starting_block: initial_attestation_info.current_epoch_starting_block
                 + initial_attestation_info.epoch_len,
@@ -315,7 +316,9 @@ mod tests {
         let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
 
         let client = MockClient::new(next_attestation_info.clone());
-        let signer = MockSigner::new();
+        let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
+            SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
+        ));
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block before the block to attest
@@ -425,7 +428,9 @@ mod tests {
         let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
 
         let client = MockClient::new(next_attestation_info.clone());
-        let signer = MockSigner::new();
+        let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
+            SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
+        ));
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block after the block to attest
@@ -544,10 +549,10 @@ mod tests {
             Ok(BLOCK_HASH)
         }
 
-        async fn attest<S: Signer>(
+        async fn attest(
             &self,
             operational_address: Felt,
-            _signer: &S,
+            _signer: &AttestationSigner,
             block_hash: Felt,
         ) -> Result<Felt, ClientError> {
             assert_eq!(operational_address, OPERATIONAL_ADDRESS);
@@ -566,32 +571,6 @@ mod tests {
             assert_eq!(self.attestation_info.staker_address, staker_address);
 
             Ok(false)
-        }
-    }
-
-    struct MockSigner(SigningKey);
-
-    impl MockSigner {
-        fn new() -> Self {
-            MockSigner(SigningKey::from_secret_scalar(felt!("0xdeadbeef")))
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Signer for MockSigner {
-        type GetPublicKeyError = Infallible;
-        type SignError = EcdsaSignError;
-
-        async fn get_public_key(&self) -> Result<VerifyingKey, Self::GetPublicKeyError> {
-            Ok(self.0.verifying_key())
-        }
-
-        async fn sign_hash(&self, hash: &Felt) -> Result<Signature, Self::SignError> {
-            self.0.sign(hash)
-        }
-
-        fn is_interactive(&self, _context: SignerInteractivityContext<'_>) -> bool {
-            false
         }
     }
 }

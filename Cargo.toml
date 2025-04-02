@@ -5,12 +5,14 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
+async-trait = "0.1.88"
 axum = "0.8.1"
 clap = { version = "4.5.34", features = ["derive", "env"] }
 futures-util = "0.3.31"
 metrics = "0.24.1"
 metrics-exporter-prometheus = "0.16.2"
 reqwest = { version = "0.12.15", default-features = false, features = [
+    "json",
     "rustls-tls-native-roots",
 ] }
 reqwest-websocket = { version = "0.4.4", features = ["json"] }
@@ -26,4 +28,3 @@ url = "2.5.4"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-async-trait = "0.1.88"

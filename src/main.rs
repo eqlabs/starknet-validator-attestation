@@ -12,6 +12,7 @@ mod events;
 mod headers;
 mod jsonrpc;
 mod metrics_exporter;
+mod signer;
 mod state;
 mod subscription;
 
@@ -20,14 +21,14 @@ mod subscription;
 struct Config {
     #[arg(
         long,
-        long_help = "The address of the staking contract",
+        long_help = "The address of the staking contract.",
         value_name = "ADDRESS",
         env = "VALIDATOR_ATTESTATION_STAKING_CONTRACT_ADDRESS"
     )]
     staking_contract_address: Felt,
     #[arg(
         long,
-        long_help = "The address of the attestation contract",
+        long_help = "The address of the attestation contract.",
         value_name = "ADDRESS",
         env = "VALIDATOR_ATTESTATION_ATTESTATION_CONTRACT_ADDRESS"
     )]
@@ -35,7 +36,7 @@ struct Config {
 
     #[arg(
         long,
-        long_help = "The address of the staker's operational account",
+        long_help = "The address of the staker's operational account.",
         value_name = "ADDRESS",
         env = "VALIDATOR_ATTESTATION_STAKER_OPERATIONAL_ADDRESS"
     )]
@@ -43,7 +44,7 @@ struct Config {
 
     #[arg(
         long,
-        long_help = "The URL of the Starknet node's JSON-RPC endpoint",
+        long_help = "The URL of the Starknet node's JSON-RPC endpoint.",
         value_name = "URL",
         env = "VALIDATOR_ATTESTATION_STARKNET_NODE_URL"
     )]
@@ -51,7 +52,25 @@ struct Config {
 
     #[arg(
         long,
-        long_help = "The address to bind the metrics server to. You can scrape metrics from the '/metrics' path on this address.",
+        long_help = "Use a local signer. The private key should be set in the environment \
+                     variable VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY.",
+        group = "signer"
+    )]
+    pub local_signer: bool,
+
+    #[arg(
+        long,
+        long_help = "Use a remote signer at URL.",
+        value_name = "URL",
+        env = "VALIDATOR_ATTESTATION_REMOTE_SIGNER_URL",
+        group = "signer"
+    )]
+    pub remote_signer_url: Option<Url>,
+
+    #[arg(
+        long,
+        long_help = "The address to bind the metrics server to. You can scrape metrics from the \
+                     '/metrics' path on this address.",
         default_value = "127.0.0.1:9090",
         value_name = "IP:PORT",
         env = "VALIDATOR_ATTESTATION_METRICS_ADDRESS"
@@ -111,14 +130,24 @@ async fn main() -> anyhow::Result<()> {
         .context("Staring metrics exporter")?;
 
     // Set up signer
-    let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(
-        Felt::from_hex(
-            &std::env::var("VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY").expect(
-                "VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY environment variable should be set to the private key",
-            ),
-        )
-        .unwrap(),
-    ));
+    let signer = if config.local_signer {
+        tracing::info!("Using local signer");
+        let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(
+            Felt::from_hex(
+                &std::env::var("VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY").expect(
+                    "VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY environment variable should be \
+                     set to the private key",
+                ),
+            )
+            .unwrap(),
+        ));
+        signer::AttestationSigner::new_local(signer)
+    } else if let Some(url) = config.remote_signer_url {
+        tracing::info!(%url, "Using remote signer");
+        signer::AttestationSigner::new_remote(url)
+    } else {
+        anyhow::bail!("Either local_signer or remote_signer_url must be specified");
+    };
 
     // Set up block and event fetchers
     let ws_scheme = match config.node_url.scheme() {
