@@ -105,6 +105,8 @@ impl Client for StarknetRpcClient {
                 selector: get_selector_from_name("attest").unwrap(),
                 calldata: vec![block_hash],
             }])
+            .gas_price_estimate_multiplier(3.0)
+            .gas_estimate_multiplier(3.0)
             .send()
             .await?;
 
