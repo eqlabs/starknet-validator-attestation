@@ -25,6 +25,7 @@ docker run -it --rm \
   --attestation-contract-address 0x04862e05d00f2d0981c4a912269c21ad99438598ab86b6e70d1cee267caaa78d \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
   --node-url http://localhost:9545/rpc/v0_8
+  --local-signer
 ```
 
 Each CLI option can also be set via environment variables. Please check the output of `starknet-validator-attestation --help` for more information.
@@ -33,6 +34,39 @@ The private key of the operational account _must_ be set via the `VALIDATOR_ATTE
 
 Log level defaults to `info`. Verbose logging can be enabled by setting the `RUST_LOG` environment variable to `debug`.
 
+
+### Signatures
+
+There are two options for signing attestation transactions sent by the tool.
+
+- You can use `--local-signer`. In this case you _must_ set the private key of the operational account in the `VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY` environment variable.
+- You can use an external signer implementing a simple HTTP API. Use `--remote-signer-url URL` or set the `VALIDATOR_ATTESTATION_REMOTE_SIGNER_URL` to the URL of the external signer API. We currently support blind signing only.
+
+#### External signer API
+
+The API should expose two endpoints:
+
+- GET `/get_public_key`: should return the public key of the operational account in a JSON object. Example response:
+  ```json
+  {
+    "public_key": "0x77cb92a6325b9fe3f3d96fd7fa4dc9af278b40ec37795d47ac89dac0f673e9b"
+  }
+  ```
+- POST `/sign_hash`: should return the signature for the transaction hash value received as its input. Example request body:
+  ```json
+  {
+    "hash": "0xdeadbeef"
+  }
+  ```
+  Response should contain the ECDSA signature values `r` and `s` in an array:
+  ```json
+  {
+    "signature": [
+      "0x6a775c4dcc7d1a1b8f23a1ab18d9e080ccb8271a7706296dfbadb3563daedfb",
+      "0x43fc38b8fd6b204ee52c3843ce060e94f8ed96355bc479dcb2db1292668ccef"
+    ]
+  }
+  ```
 
 ## Monitoring
 
