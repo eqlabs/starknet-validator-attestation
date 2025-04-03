@@ -52,6 +52,14 @@ struct Config {
 
     #[arg(
         long,
+        long_help = "The URL of the Starknet node's Websocket endpoint.",
+        value_name = "URL",
+        env = "VALIDATOR_ATTESTATION_STARKNET_NODE_WEBSOCKET_URL"
+    )]
+    pub node_websocket_url: Option<Url>,
+
+    #[arg(
+        long,
         long_help = "Use a local signer. The private key should be set in the environment \
                      variable VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY.",
         group = "signer"
@@ -150,15 +158,22 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Set up block and event fetchers
-    let ws_scheme = match config.node_url.scheme() {
-        "http" => "ws",
-        "https" => "wss",
-        _ => panic!("Unsupported Starknet node URL scheme"),
+    let node_websocket_url = match config.node_websocket_url {
+        Some(url) => url,
+        None => {
+            tracing::info!("Using JSON-RPC URL as WebSocket URL");
+            let ws_scheme = match config.node_url.scheme() {
+                "http" => "ws",
+                "https" => "wss",
+                _ => panic!("Unsupported Starknet node URL scheme"),
+            };
+            let mut node_websocket_url = config.node_url.clone();
+            node_websocket_url
+                .set_scheme(ws_scheme)
+                .map_err(|_| anyhow::anyhow!("Failed to construct WebSocket URL"))?;
+            node_websocket_url
+        }
     };
-    let mut node_websocket_url = config.node_url.clone();
-    node_websocket_url
-        .set_scheme(ws_scheme)
-        .map_err(|_| anyhow::anyhow!("Failed to construct WebSocket URL"))?;
 
     let (reorg_tx, mut reorg_rx) = tokio::sync::mpsc::channel(10);
 
