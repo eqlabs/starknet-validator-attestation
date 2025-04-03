@@ -33,7 +33,7 @@ pub enum SubscriptionMethod {
 struct SubscriptionResponse {
     #[serde(rename = "jsonrpc")]
     pub _jsonrpc: JsonRpcVersion,
-    pub result: u64,
+    pub result: String,
     pub id: u64,
 }
 
@@ -59,7 +59,7 @@ pub enum NotificationMethod {
 #[derive(Debug, PartialEq, serde::Deserialize)]
 pub struct NewHeadsNotificationParams {
     pub result: NewHeader,
-    pub subscription_id: u64,
+    pub subscription_id: String,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize)]
@@ -71,7 +71,7 @@ pub struct NewHeader {
 #[derive(Debug, PartialEq, serde::Deserialize)]
 pub struct EventsNotificationParams {
     pub result: EmittedEvent,
-    pub subscription_id: u64,
+    pub subscription_id: String,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize)]
@@ -88,7 +88,7 @@ pub struct EmittedEvent {
 #[derive(Debug, PartialEq, serde::Deserialize)]
 pub struct ReorgNotificationParams {
     pub result: ReorgData,
-    pub subscription_id: u64,
+    pub subscription_id: String,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize)]
@@ -107,7 +107,7 @@ pub enum JsonRpcVersion {
 pub async fn subscribe(
     url: Url,
     subscription: SubscriptionMethod,
-) -> anyhow::Result<(reqwest_websocket::WebSocket, u64)> {
+) -> anyhow::Result<(reqwest_websocket::WebSocket, String)> {
     let mut client = reqwest::Client::default()
         .get(url.clone())
         .upgrade()
@@ -209,7 +209,7 @@ mod tests {
                     block_hash: Felt::ZERO,
                     block_number: 0,
                 },
-                subscription_id: 0,
+                subscription_id: "0".to_string(),
             }),
         };
         let notification = json!({
@@ -221,7 +221,7 @@ mod tests {
                     "block_number": 0,
                     "l1_da_mode":"CALLDATA"
                 },
-                "subscription_id": 0
+                "subscription_id": "0"
             }
         });
 
@@ -242,7 +242,7 @@ mod tests {
                     block_number: 0,
                     transaction_hash: felt!("0x4"),
                 },
-                subscription_id: 0,
+                subscription_id: "0".to_string(),
             }),
         };
         let notification = json!({
@@ -257,7 +257,7 @@ mod tests {
                     "keys": ["0x2", "0x3"],
                     "transaction_hash": "0x4",
                 },
-                "subscription_id": 0
+                "subscription_id": "0"
             }
         });
 
@@ -274,7 +274,7 @@ mod tests {
                     starting_block_number: 20,
                     ending_block_number: 30,
                 },
-                subscription_id: 0,
+                subscription_id: "0".to_string(),
             }),
         };
         let notification = json!({
@@ -287,7 +287,7 @@ mod tests {
                     "ending_block_number": 30,
                     "ending_block_hash": "0xbeefdead"
                 },
-                "subscription_id": 0
+                "subscription_id": "0"
             }
         });
 
