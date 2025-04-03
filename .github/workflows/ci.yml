@@ -28,3 +28,10 @@ jobs:
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked -- -D warnings
+
+  rustfmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --all -- --check
