@@ -1,6 +1,6 @@
 use anyhow::Context;
 use starknet::{
-    accounts::{Account, AccountError, SingleOwnerAccount},
+    accounts::{Account, AccountError, ExecutionEncoding},
     core::{
         types::{
             BlockId, BlockTag, ContractExecutionError, FunctionCall, InnerContractExecutionError,
@@ -10,10 +10,16 @@ use starknet::{
     },
     providers::{JsonRpcClient, Provider, ProviderError, jsonrpc::HttpTransport},
 };
+use starknet_core::types::{
+    BroadcastedInvokeTransactionV3, DataAvailabilityMode, ResourceBounds, ResourceBoundsMapping,
+};
 use starknet_crypto::Felt;
 use url::Url;
 
-use crate::{attestation_info::AttestationInfo, signer::AttestationSigner};
+use crate::{
+    attestation_info::AttestationInfo,
+    signer::{AttestationSigner, SignError},
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -89,52 +95,18 @@ impl Client for StarknetRpcClient {
     ) -> Result<Felt, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
 
-        let result = match signer {
-            AttestationSigner::Local(wallet) => {
-                let mut account = SingleOwnerAccount::new(
-                    &self.client,
-                    wallet,
-                    operational_address,
-                    chain_id,
-                    starknet::accounts::ExecutionEncoding::New,
-                );
+        let account = ClearSigningAccount::new(&self.client, signer, operational_address, chain_id);
 
-                account.set_block_id(BlockId::Tag(BlockTag::Pending));
-
-                account
-                    .execute_v3(vec![starknet::core::types::Call {
-                        to: self.attestation_contract_address,
-                        selector: get_selector_from_name("attest").unwrap(),
-                        calldata: vec![block_hash],
-                    }])
-                    .gas_price_estimate_multiplier(3.0)
-                    .gas_estimate_multiplier(3.0)
-                    .send()
-                    .await?
-            }
-            AttestationSigner::Remote(signer) => {
-                let mut account = SingleOwnerAccount::new(
-                    &self.client,
-                    signer,
-                    operational_address,
-                    chain_id,
-                    starknet::accounts::ExecutionEncoding::New,
-                );
-
-                account.set_block_id(BlockId::Tag(BlockTag::Pending));
-
-                account
-                    .execute_v3(vec![starknet::core::types::Call {
-                        to: self.attestation_contract_address,
-                        selector: get_selector_from_name("attest").unwrap(),
-                        calldata: vec![block_hash],
-                    }])
-                    .gas_price_estimate_multiplier(3.0)
-                    .gas_estimate_multiplier(3.0)
-                    .send()
-                    .await?
-            }
-        };
+        let result = account
+            .execute_v3(vec![starknet::core::types::Call {
+                to: self.attestation_contract_address,
+                selector: get_selector_from_name("attest").unwrap(),
+                calldata: vec![block_hash],
+            }])
+            .gas_price_estimate_multiplier(3.0)
+            .gas_estimate_multiplier(3.0)
+            .send()
+            .await?;
 
         Ok(result.transaction_hash)
     }
@@ -258,5 +230,163 @@ impl StarknetRpcClient {
         let chain_id = starknet::core::utils::parse_cairo_short_string(&chain_id)
             .context("Parsing chain ID as Cairo short string")?;
         Ok(chain_id)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ClearSigningAccount<'a, P: Provider + Send> {
+    provider: P,
+    signer: &'a AttestationSigner,
+    address: Felt,
+    chain_id: Felt,
+    block_id: BlockId,
+    encoding: ExecutionEncoding,
+}
+
+impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
+    pub fn new(provider: P, signer: &'a AttestationSigner, address: Felt, chain_id: Felt) -> Self {
+        Self {
+            provider,
+            signer,
+            address,
+            chain_id,
+            block_id: BlockId::Tag(BlockTag::Pending),
+            encoding: ExecutionEncoding::New,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<P> Account for ClearSigningAccount<'_, P>
+where
+    P: Provider + Sync + Send,
+{
+    type SignError = SignError;
+
+    fn address(&self) -> Felt {
+        self.address
+    }
+
+    fn chain_id(&self) -> Felt {
+        self.chain_id
+    }
+
+    async fn sign_execution_v3(
+        &self,
+        execution: &starknet::accounts::RawExecutionV3,
+        query_only: bool,
+    ) -> Result<Vec<Felt>, Self::SignError> {
+        let tx_hash = execution.transaction_hash(self.chain_id, self.address, query_only, self);
+        let transaction = self.get_invoke_request(execution, query_only);
+
+        let signature = self.signer.sign(&tx_hash, transaction).await?;
+
+        Ok(vec![signature.r, signature.s])
+    }
+
+    async fn sign_declaration_v3(
+        &self,
+        _declaration: &starknet::accounts::RawDeclarationV3,
+        _query_only: bool,
+    ) -> Result<Vec<Felt>, Self::SignError> {
+        unimplemented!("Signing declaration is not implemented. This is an internal error.");
+    }
+
+    fn is_signer_interactive(
+        &self,
+        context: starknet::signers::SignerInteractivityContext<'_>,
+    ) -> bool {
+        self.signer.is_signer_interactive(context)
+    }
+}
+
+impl<P> starknet::accounts::ExecutionEncoder for ClearSigningAccount<'_, P>
+where
+    P: Provider + Send,
+{
+    fn encode_calls(&self, calls: &[starknet::core::types::Call]) -> Vec<Felt> {
+        let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
+
+        match self.encoding {
+            ExecutionEncoding::Legacy => {
+                let mut concated_calldata: Vec<Felt> = vec![];
+                for call in calls {
+                    execute_calldata.push(call.to); // to
+                    execute_calldata.push(call.selector); // selector
+                    execute_calldata.push(concated_calldata.len().into()); // data_offset
+                    execute_calldata.push(call.calldata.len().into()); // data_len
+
+                    for item in &call.calldata {
+                        concated_calldata.push(*item);
+                    }
+                }
+
+                execute_calldata.push(concated_calldata.len().into()); // calldata_len
+                execute_calldata.extend_from_slice(&concated_calldata);
+            }
+            ExecutionEncoding::New => {
+                for call in calls {
+                    execute_calldata.push(call.to); // to
+                    execute_calldata.push(call.selector); // selector
+
+                    execute_calldata.push(call.calldata.len().into()); // calldata.len()
+                    execute_calldata.extend_from_slice(&call.calldata);
+                }
+            }
+        }
+
+        execute_calldata
+    }
+}
+
+impl<P> starknet::accounts::ConnectedAccount for ClearSigningAccount<'_, P>
+where
+    P: Provider + Sync + Send,
+{
+    type Provider = P;
+
+    fn provider(&self) -> &Self::Provider {
+        &self.provider
+    }
+
+    fn block_id(&self) -> BlockId {
+        self.block_id
+    }
+}
+
+impl<P: Provider + Send + Sync> ClearSigningAccount<'_, P> {
+    fn get_invoke_request(
+        &self,
+        execution: &starknet::accounts::RawExecutionV3,
+        query_only: bool,
+    ) -> BroadcastedInvokeTransactionV3 {
+        use starknet::accounts::ExecutionEncoder;
+
+        BroadcastedInvokeTransactionV3 {
+            sender_address: self.address,
+            calldata: self.encode_calls(execution.calls()),
+            signature: vec![],
+            nonce: execution.nonce(),
+            resource_bounds: ResourceBoundsMapping {
+                l1_gas: ResourceBounds {
+                    max_amount: execution.l1_gas(),
+                    max_price_per_unit: execution.l1_gas_price(),
+                },
+                l1_data_gas: ResourceBounds {
+                    max_amount: execution.l1_data_gas(),
+                    max_price_per_unit: execution.l1_data_gas_price(),
+                },
+                l2_gas: ResourceBounds {
+                    max_amount: execution.l2_gas(),
+                    max_price_per_unit: execution.l2_gas_price(),
+                },
+            },
+            tip: 0,
+            paymaster_data: vec![],
+            account_deployment_data: vec![],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: query_only,
+        }
     }
 }

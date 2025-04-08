@@ -5,7 +5,7 @@ This is a tool for attesting validators on Starknet. Implements the attestation 
 
 ## Requirements
 
-- A Starknet node with support for the JSON-RPC 0.8.0 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder).
+- A Starknet node with support for the JSON-RPC 0.8.1 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder) v0.16.3.
 - Staking contracts set up and registered with Staking v2.
 - Sufficient funds in the operational account to pay for attestation transactions.
 
@@ -40,31 +40,58 @@ Log level defaults to `info`. Verbose logging can be enabled by setting the `RUS
 There are two options for signing attestation transactions sent by the tool.
 
 - You can use `--local-signer`. In this case you _must_ set the private key of the operational account in the `VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY` environment variable.
-- You can use an external signer implementing a simple HTTP API. Use `--remote-signer-url URL` or set the `VALIDATOR_ATTESTATION_REMOTE_SIGNER_URL` to the URL of the external signer API. We currently support blind signing only.
+- You can use an external signer implementing a simple HTTP API. Use `--remote-signer-url URL` or set the `VALIDATOR_ATTESTATION_REMOTE_SIGNER_URL` to the URL of the external signer API.
 
 #### External signer API
 
-The API should expose two endpoints:
+The API should expose a single `/sign` endpoint:
 
-- GET `/get_public_key`: should return the public key of the operational account in a JSON object. Example response:
+- POST `/sign`: should return the signature for the transaction hash and transaction values received as its input. The `transaction` object should follow the [INVOKE_TXN_V3](https://github.com/starkware-libs/starknet-specs/blob/a2d10fc6cbaddbe2d3cf6ace5174dd0a306f4885/api/starknet_api_openrpc.json#L2621) schema from the JSON-RPC specification. Example request body:
   ```json
   {
-    "public_key": "0x77cb92a6325b9fe3f3d96fd7fa4dc9af278b40ec37795d47ac89dac0f673e9b"
-  }
-  ```
-- POST `/sign_hash`: should return the signature for the transaction hash value received as its input. Example request body:
-  ```json
-  {
-    "hash": "0xdeadbeef"
+      "transaction_hash": "0xdeadbeef",
+      "transaction": {
+          "type": "INVOKE",
+          "sender_address": "0x2e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9",
+          "calldata": [
+              "0x1",
+              "0x4862e05d00f2d0981c4a912269c21ad99438598ab86b6e70d1cee267caaa78d",
+              "0x37446750a403c1b4014436073cf8d08ceadc5b156ac1c8b7b0ca41a0c9c1c54",
+              "0x1",
+              "0x614f596b9d8eafbc87a48ff3a2a4bd503762d3f4be7c91cdeb766cf869c2233"
+          ],
+          "version": "0x3",
+          "signature": [],
+          "nonce": "0xbf",
+          "resource_bounds": {
+              "l1_gas": {
+                  "max_amount": "0x0",
+                  "max_price_per_unit": "0x49f83fa3027b"
+              },
+              "l1_data_gas": {
+                  "max_amount": "0x600",
+                  "max_price_per_unit": "0x3948c"
+              },
+              "l2_gas": {
+                  "max_amount": "0x1142700",
+                  "max_price_per_unit": "0x33a8f57f9"
+              }
+          },
+          "tip": "0x0",
+          "paymaster_data": [],
+          "account_deployment_data": [],
+          "nonce_data_availability_mode": "L1",
+          "fee_data_availability_mode": "L1"
+      }
   }
   ```
   Response should contain the ECDSA signature values `r` and `s` in an array:
   ```json
   {
-    "signature": [
-      "0x6a775c4dcc7d1a1b8f23a1ab18d9e080ccb8271a7706296dfbadb3563daedfb",
-      "0x43fc38b8fd6b204ee52c3843ce060e94f8ed96355bc479dcb2db1292668ccef"
-    ]
+      "signature": [
+          "0x6a775c4dcc7d1a1b8f23a1ab18d9e080ccb8271a7706296dfbadb3563daedfb",
+          "0x43fc38b8fd6b204ee52c3843ce060e94f8ed96355bc479dcb2db1292668ccef"
+      ]
   }
   ```
 

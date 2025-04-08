@@ -1,7 +1,29 @@
 use serde::{Deserialize, Serialize};
-use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext, VerifyingKey};
+use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext};
+use starknet_core::types::BroadcastedInvokeTransactionV3;
 use starknet_crypto::{Felt, Signature};
 
+#[derive(Debug, thiserror::Error)]
+pub enum SignError {
+    /// An error encountered by the signer implementation.
+    #[error(transparent)]
+    Signing(starknet_core::crypto::EcdsaSignError),
+    /// A transport error encountered during remote signing.
+    #[error(transparent)]
+    Transport(reqwest::Error),
+}
+
+impl From<starknet::signers::local_wallet::SignError> for SignError {
+    fn from(value: starknet::signers::local_wallet::SignError) -> Self {
+        match value {
+            starknet::signers::local_wallet::SignError::EcdsaSignError(ecdsa_sign_error) => {
+                Self::Signing(ecdsa_sign_error)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum AttestationSigner {
     Local(LocalWallet),
     Remote(RemoteSigner),
@@ -14,6 +36,25 @@ impl AttestationSigner {
 
     pub fn new_remote(url: url::Url) -> Self {
         Self::Remote(RemoteSigner::new(url))
+    }
+
+    pub async fn sign(
+        &self,
+        hash: &Felt,
+        transaction: BroadcastedInvokeTransactionV3,
+    ) -> Result<Signature, SignError> {
+        let signature = match self {
+            Self::Local(wallet) => wallet.sign_hash(hash).await?,
+            Self::Remote(signer) => signer.sign(hash, transaction).await?,
+        };
+        Ok(signature)
+    }
+
+    pub fn is_signer_interactive(&self, context: SignerInteractivityContext<'_>) -> bool {
+        match self {
+            Self::Local(_) => false,
+            Self::Remote(signer) => signer.is_interactive(context),
+        }
     }
 }
 
@@ -33,44 +74,25 @@ impl RemoteSigner {
     }
 }
 
-/// Errors using [`LocalWallet`].
-#[derive(Debug, thiserror::Error)]
-pub enum RemoteSignerError {
-    /// ECDSA signature error.
-    #[error(transparent)]
-    TransportError(reqwest::Error),
-}
-
-#[async_trait::async_trait]
-impl Signer for RemoteSigner {
-    type GetPublicKeyError = RemoteSignerError;
-    type SignError = RemoteSignerError;
-
-    async fn get_public_key(&self) -> Result<VerifyingKey, Self::GetPublicKeyError> {
-        let public_key = self
-            .client
-            .get(self.url.join("/get_public_key").unwrap())
-            .send()
-            .await
-            .map_err(RemoteSignerError::TransportError)?
-            .json::<PublicKeyResponse>()
-            .await
-            .map_err(RemoteSignerError::TransportError)?
-            .public_key;
-        Ok(VerifyingKey::from_scalar(public_key))
-    }
-
-    async fn sign_hash(&self, hash: &Felt) -> Result<Signature, Self::SignError> {
+impl RemoteSigner {
+    async fn sign(
+        &self,
+        hash: &Felt,
+        transaction: BroadcastedInvokeTransactionV3,
+    ) -> Result<Signature, SignError> {
         let signature = self
             .client
-            .post(self.url.join("/sign_hash").unwrap())
-            .json(&SignHashRequest { hash: *hash })
+            .post(self.url.join("/sign").unwrap())
+            .json(&SignRequest {
+                transaction_hash: *hash,
+                transaction,
+            })
             .send()
             .await
-            .map_err(RemoteSignerError::TransportError)?
+            .map_err(SignError::Transport)?
             .json::<SignHashResponse>()
             .await
-            .map_err(RemoteSignerError::TransportError)?
+            .map_err(SignError::Transport)?
             .signature;
         Ok(Signature {
             r: signature[0],
@@ -83,14 +105,10 @@ impl Signer for RemoteSigner {
     }
 }
 
-#[derive(Deserialize)]
-struct PublicKeyResponse {
-    public_key: Felt,
-}
-
 #[derive(Serialize)]
-struct SignHashRequest {
-    hash: Felt,
+struct SignRequest {
+    transaction_hash: Felt,
+    transaction: BroadcastedInvokeTransactionV3,
 }
 
 #[derive(Deserialize)]
