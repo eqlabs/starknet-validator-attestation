@@ -81,7 +81,7 @@ pub struct EmittedEvent {
     pub data: Vec<Felt>,
     // Pending events do not have block hash
     pub block_hash: Option<Felt>,
-    pub block_number: u64,
+    pub block_number: Option<u64>,
     pub transaction_hash: Felt,
 }
 
@@ -239,7 +239,7 @@ mod tests {
                     keys: vec![felt!("0x2"), felt!("0x3")],
                     data: vec![felt!("0x0"), felt!("0x1")],
                     block_hash: Some(Felt::ZERO),
-                    block_number: 0,
+                    block_number: Some(0),
                     transaction_hash: felt!("0x4"),
                 },
                 subscription_id: "0".to_string(),
