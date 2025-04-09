@@ -1,6 +1,6 @@
 use anyhow::Context;
 use starknet::{
-    accounts::{Account, AccountError, ExecutionEncoding},
+    accounts::{Account, AccountError},
     core::{
         types::{
             BlockId, BlockTag, ContractExecutionError, FunctionCall, InnerContractExecutionError,
@@ -240,7 +240,6 @@ struct ClearSigningAccount<'a, P: Provider + Send> {
     address: Felt,
     chain_id: Felt,
     block_id: BlockId,
-    encoding: ExecutionEncoding,
 }
 
 impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
@@ -251,7 +250,6 @@ impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
             address,
             chain_id,
             block_id: BlockId::Tag(BlockTag::Pending),
-            encoding: ExecutionEncoding::New,
         }
     }
 }
@@ -307,32 +305,12 @@ where
     fn encode_calls(&self, calls: &[starknet::core::types::Call]) -> Vec<Felt> {
         let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
 
-        match self.encoding {
-            ExecutionEncoding::Legacy => {
-                let mut concated_calldata: Vec<Felt> = vec![];
-                for call in calls {
-                    execute_calldata.push(call.to); // to
-                    execute_calldata.push(call.selector); // selector
-                    execute_calldata.push(concated_calldata.len().into()); // data_offset
-                    execute_calldata.push(call.calldata.len().into()); // data_len
+        for call in calls {
+            execute_calldata.push(call.to); // to
+            execute_calldata.push(call.selector); // selector
 
-                    for item in &call.calldata {
-                        concated_calldata.push(*item);
-                    }
-                }
-
-                execute_calldata.push(concated_calldata.len().into()); // calldata_len
-                execute_calldata.extend_from_slice(&concated_calldata);
-            }
-            ExecutionEncoding::New => {
-                for call in calls {
-                    execute_calldata.push(call.to); // to
-                    execute_calldata.push(call.selector); // selector
-
-                    execute_calldata.push(call.calldata.len().into()); // calldata.len()
-                    execute_calldata.extend_from_slice(&call.calldata);
-                }
-            }
+            execute_calldata.push(call.calldata.len().into()); // calldata.len()
+            execute_calldata.extend_from_slice(&call.calldata);
         }
 
         execute_calldata
