@@ -34,8 +34,8 @@ impl AttestationSigner {
         Self::Local(wallet)
     }
 
-    pub fn new_remote(url: url::Url) -> Self {
-        Self::Remote(RemoteSigner::new(url))
+    pub fn new_remote(url: url::Url) -> anyhow::Result<Self> {
+        Ok(Self::Remote(RemoteSigner::new(url)?))
     }
 
     pub async fn sign(
@@ -66,11 +66,13 @@ pub struct RemoteSigner {
 
 impl RemoteSigner {
     /// Constructs [`RemoteSigner`] from a [`reqwest::Client`].
-    pub fn new(url: url::Url) -> Self {
-        Self {
+    pub fn new(url: url::Url) -> anyhow::Result<Self> {
+        Ok(Self {
             url,
-            client: reqwest::Client::new(),
-        }
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()?,
+        })
     }
 }
 
