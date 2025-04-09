@@ -1,0 +1,39 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+jobs:
+    create-draft-release:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: taiki-e/create-gh-release-action@v1
+              with:
+                # (Optional) Create a draft release.
+                # [default value: false]
+                draft: true
+                # (Required) GitHub token for creating GitHub Releases.
+                token: ${{ secrets.GITHUB_TOKEN }}
+
+    upload-assets:
+        needs: create-draft-release
+        strategy:
+            matrix:
+              include:
+                - target: x86_64-unknown-linux-gnu
+                  os: ubuntu-20.04
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: taiki-e/upload-rust-binary-action@v1
+              with:
+                bin: starknet-validator-attestation
+                target: ${{ matrix.target }}
+                profile: release
+                token: ${{ secrets.GITHUB_TOKEN }}
