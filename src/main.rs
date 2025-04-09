@@ -152,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
         signer::AttestationSigner::new_local(signer)
     } else if let Some(url) = config.remote_signer_url {
         tracing::info!(%url, "Using remote signer");
-        signer::AttestationSigner::new_remote(url)
+        signer::AttestationSigner::new_remote(url).context("Creating remote signer")?
     } else {
         anyhow::bail!("Either local_signer or remote_signer_url must be specified");
     };
