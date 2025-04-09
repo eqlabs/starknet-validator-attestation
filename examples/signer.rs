@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use starknet::signers::SigningKey;
+use starknet_core::types::BroadcastedInvokeTransactionV3;
 use starknet_crypto::Felt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,7 +16,8 @@ struct PublicKeyResponse {
 
 #[derive(Deserialize)]
 struct SignHashRequest {
-    hash: Felt,
+    transaction_hash: Felt,
+    transaction: BroadcastedInvokeTransactionV3,
 }
 
 #[derive(Serialize)]
@@ -25,6 +27,12 @@ struct SignHashResponse {
 
 #[tokio::main]
 async fn main() {
+    let format = tracing_subscriber::fmt::format().compact();
+    tracing_subscriber::fmt()
+        .event_format(format)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let signing_key = SigningKey::from_secret_scalar(
         Felt::from_hex(
             &std::env::var("PRIVATE_KEY")
@@ -48,15 +56,16 @@ async fn main() {
             }),
         )
         .route(
-            "/sign_hash",
+            "/sign",
             post({
                 let state = Arc::clone(&state);
                 move |Json(payload): Json<SignHashRequest>| {
                     let state = Arc::clone(&state);
                     async move {
+                        tracing::info!(transaction=?payload.transaction, "Signing transaction");
                         // Sign the hash
                         let signing_key = state.lock().await;
-                        let signature = signing_key.sign(&payload.hash).unwrap();
+                        let signature = signing_key.sign(&payload.transaction_hash).unwrap();
 
                         Json(SignHashResponse {
                             signature: [signature.r, signature.s],
