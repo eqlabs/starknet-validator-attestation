@@ -197,12 +197,15 @@ impl StarknetRpcClient {
         url: Url,
         staking_contract_address: Felt,
         attestation_contract_address: Felt,
-    ) -> Self {
-        StarknetRpcClient {
-            client: JsonRpcClient::new(HttpTransport::new(url)),
+    ) -> anyhow::Result<Self> {
+        let http_client = reqwest_starknet_rs::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+        Ok(StarknetRpcClient {
+            client: JsonRpcClient::new(HttpTransport::new_with_client(url, http_client)),
             staking_contract_address,
             attestation_contract_address,
-        }
+        })
     }
 
     async fn get_attestation_window(&self) -> anyhow::Result<u16> {
