@@ -125,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
         config.node_url.clone(),
         config.staking_contract_address,
         config.attestation_contract_address,
-    );
+    )
+    .context("Creating JSON-RPC client")?;
 
     // Initialize Prometheus metrics
     let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
