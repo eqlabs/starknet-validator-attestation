@@ -21,8 +21,8 @@ You can either use the Docker image we publish on [GitHub](https://github.com/eq
 docker run -it --rm --network host \
   -e VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY="0xdeadbeef" \
   ghcr.io/eqlabs/starknet-validator-attestation \
-  --staking-contract-address 0x034370fc9931c636ab07b16ada82d60f05d32993943debe2376847e0921c1162 \
-  --attestation-contract-address 0x04862e05d00f2d0981c4a912269c21ad99438598ab86b6e70d1cee267caaa78d \
+  --staking-contract-address 0x03745ab04a431fc02871a139be6b93d9260b0ff3e779ad9c8b377183b23109f1 \
+  --attestation-contract-address 0x03f32e152b9637c31bfcf73e434f78591067a01ba070505ff6ee195642c9acfb \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
   --node-url http://localhost:9545/rpc/v0_8 \
   --local-signer
