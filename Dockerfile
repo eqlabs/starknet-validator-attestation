@@ -12,7 +12,7 @@ COPY . .
 RUN cargo build --release
 
 FROM debian:bookworm-slim AS runner
-RUN apt-get update && apt-get install -y ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y tini && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 1000 starknet && useradd --uid 1000 --gid 1000 starknet
 
 COPY --from=rust-builder /src/target/release/starknet-validator-attestation /usr/local/bin/
