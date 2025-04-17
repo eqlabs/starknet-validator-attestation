@@ -532,23 +532,6 @@ mod tests {
     }
 
     impl crate::jsonrpc::Client for MockClient {
-        async fn get_attestation_info(
-            &self,
-            _operational_address: Felt,
-        ) -> Result<AttestationInfo, ClientError> {
-            self.attestation_sent
-                .store(false, std::sync::atomic::Ordering::Relaxed);
-
-            Ok(self.attestation_info.clone())
-        }
-
-        async fn get_block_hash(&self, _block_number: u64) -> Result<Felt, ClientError> {
-            self.block_hash_queried
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-
-            Ok(BLOCK_HASH)
-        }
-
         async fn attest(
             &self,
             operational_address: Felt,
@@ -571,6 +554,23 @@ mod tests {
             assert_eq!(self.attestation_info.staker_address, staker_address);
 
             Ok(false)
+        }
+
+        async fn get_attestation_info(
+            &self,
+            _operational_address: Felt,
+        ) -> Result<AttestationInfo, ClientError> {
+            self.attestation_sent
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(self.attestation_info.clone())
+        }
+
+        async fn get_block_hash(&self, _block_number: u64) -> Result<Felt, ClientError> {
+            self.block_hash_queried
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(BLOCK_HASH)
         }
     }
 }
