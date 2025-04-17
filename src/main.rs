@@ -141,15 +141,12 @@ async fn main() -> anyhow::Result<()> {
     // Set up signer
     let signer = if config.local_signer {
         tracing::info!("Using local signer");
-        let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(
-            Felt::from_hex(
-                &std::env::var("VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY").expect(
-                    "VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY environment variable should be \
+        let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(Felt::from_hex(
+            &std::env::var("VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY").expect(
+                "VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY environment variable should be \
                      set to the private key",
-                ),
-            )
-            .unwrap(),
-        ));
+            ),
+        )?));
         signer::AttestationSigner::new_local(signer)
     } else if let Some(url) = config.remote_signer_url {
         tracing::info!(%url, "Using remote signer");

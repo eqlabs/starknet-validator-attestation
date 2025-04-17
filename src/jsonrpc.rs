@@ -128,8 +128,7 @@ impl Client for StarknetRpcClient {
                 },
                 BlockId::Tag(BlockTag::Pending),
             )
-            .await
-            .unwrap();
+            .await?;
 
         Ok(result == vec![Felt::ONE])
     }
@@ -151,8 +150,7 @@ impl Client for StarknetRpcClient {
                 },
                 BlockId::Tag(BlockTag::Pending),
             )
-            .await
-            .unwrap();
+            .await?;
 
         let attestation_window = self
             .get_attestation_window()
@@ -214,13 +212,12 @@ impl StarknetRpcClient {
             .call(
                 FunctionCall {
                     contract_address: self.attestation_contract_address,
-                    entry_point_selector: get_selector_from_name("attestation_window").unwrap(),
+                    entry_point_selector: get_selector_from_name("attestation_window")?,
                     calldata: vec![],
                 },
                 BlockId::Tag(BlockTag::Pending),
             )
-            .await
-            .unwrap();
+            .await?;
 
         let attestation_window = result[0]
             .try_into()
