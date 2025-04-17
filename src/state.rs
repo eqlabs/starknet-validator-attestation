@@ -22,7 +22,7 @@ pub struct AttestationParams {
 }
 
 impl AttestationParams {
-    pub fn in_window(&self, block_number: u64) -> std::cmp::Ordering {
+    pub fn in_window(&self, block_number: u64) -> Ordering {
         use std::cmp::Ordering;
 
         if block_number < self.start_of_attestation_window {
