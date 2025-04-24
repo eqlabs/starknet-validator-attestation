@@ -277,7 +277,10 @@ where
         let tx_hash = execution.transaction_hash(self.chain_id, self.address, query_only, self);
         let transaction = self.get_invoke_request(execution, query_only);
 
-        let signature = self.signer.sign(&tx_hash, transaction).await?;
+        let signature = self
+            .signer
+            .sign(&tx_hash, transaction, self.chain_id)
+            .await?;
 
         Ok(vec![signature.r, signature.s])
     }

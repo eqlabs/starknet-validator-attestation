@@ -46,10 +46,9 @@ There are two options for signing attestation transactions sent by the tool.
 
 The API should expose a single `/sign` endpoint:
 
-- POST `/sign`: should return the signature for the transaction hash and transaction values received as its input. The `transaction` object should follow the [INVOKE_TXN_V3](https://github.com/starkware-libs/starknet-specs/blob/a2d10fc6cbaddbe2d3cf6ace5174dd0a306f4885/api/starknet_api_openrpc.json#L2621) schema from the JSON-RPC specification. Example request body:
+- POST `/sign`: should return the signature for the chain id and transaction values received as its input. The `transaction` object should follow the [INVOKE_TXN_V3](https://github.com/starkware-libs/starknet-specs/blob/a2d10fc6cbaddbe2d3cf6ace5174dd0a306f4885/api/starknet_api_openrpc.json#L2621) schema from the JSON-RPC specification (the signature field is ignored). Example request body:
   ```json
   {
-      "transaction_hash": "0xdeadbeef",
       "transaction": {
           "type": "INVOKE",
           "sender_address": "0x2e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9",
@@ -82,7 +81,8 @@ The API should expose a single `/sign` endpoint:
           "account_deployment_data": [],
           "nonce_data_availability_mode": "L1",
           "fee_data_availability_mode": "L1"
-      }
+      },
+      "chain_id": "0x534e5f5345504f4c4941"
   }
   ```
   Response should contain the ECDSA signature values `r` and `s` in an array:
@@ -95,7 +95,7 @@ The API should expose a single `/sign` endpoint:
   }
   ```
 
-A toy implementation of the API is available [here](./examples/signer.rs).
+An example implementation of the API is available [here](./examples/signer.rs).
 
 ## Monitoring
 

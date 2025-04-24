@@ -42,10 +42,11 @@ impl AttestationSigner {
         &self,
         hash: &Felt,
         transaction: BroadcastedInvokeTransactionV3,
+        chain_id: Felt,
     ) -> Result<Signature, SignError> {
         let signature = match self {
             Self::Local(wallet) => wallet.sign_hash(hash).await?,
-            Self::Remote(signer) => signer.sign(hash, transaction).await?,
+            Self::Remote(signer) => signer.sign(transaction, chain_id).await?,
         };
         Ok(signature)
     }
@@ -79,15 +80,15 @@ impl RemoteSigner {
 impl RemoteSigner {
     async fn sign(
         &self,
-        hash: &Felt,
         transaction: BroadcastedInvokeTransactionV3,
+        chain_id: Felt,
     ) -> Result<Signature, SignError> {
         let signature = self
             .client
             .post(self.url.join("/sign").unwrap())
             .json(&SignRequest {
-                transaction_hash: *hash,
                 transaction,
+                chain_id,
             })
             .send()
             .await
@@ -109,8 +110,8 @@ impl RemoteSigner {
 
 #[derive(Serialize)]
 struct SignRequest {
-    transaction_hash: Felt,
     transaction: BroadcastedInvokeTransactionV3,
+    chain_id: Felt,
 }
 
 #[derive(Deserialize)]
