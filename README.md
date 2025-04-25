@@ -12,7 +12,7 @@ This is a tool for attesting validators on Starknet. Implements the attestation 
 
 ## Installation
 
-You can either use the Docker image we publish on [GitHub](https://github.com/eqlabs/starknet-validator-attestation/pkgs/container/starknet-validator-attestation) or compile the source code from this repository. Compilation requires Rust 1.85+.
+You can either use the Docker image we publish on [GitHub](https://github.com/eqlabs/starknet-validator-attestation/pkgs/container/starknet-validator-attestation), the binaries on our [release page](https://github.com/eqlabs/starknet-validator-attestation/releases/latest) or compile the source code from this repository. Compilation requires Rust 1.85+.
 
 
 ## Running
