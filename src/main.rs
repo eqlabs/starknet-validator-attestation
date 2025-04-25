@@ -1,7 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
 use jsonrpc::Client;
-use starknet::signers::{LocalWallet, SigningKey};
+use starknet::{
+    macros::felt,
+    providers::{JsonRpcClient, Provider, jsonrpc::HttpTransport},
+    signers::{LocalWallet, SigningKey},
+};
 use starknet_crypto::Felt;
 use tokio::select;
 use tracing_subscriber::EnvFilter;
@@ -25,14 +29,14 @@ struct Config {
         value_name = "ADDRESS",
         env = "VALIDATOR_ATTESTATION_STAKING_CONTRACT_ADDRESS"
     )]
-    staking_contract_address: Felt,
+    staking_contract_address: Option<Felt>,
     #[arg(
         long,
         long_help = "The address of the attestation contract.",
         value_name = "ADDRESS",
         env = "VALIDATOR_ATTESTATION_ATTESTATION_CONTRACT_ADDRESS"
     )]
-    attestation_contract_address: Felt,
+    attestation_contract_address: Option<Felt>,
 
     #[arg(
         long,
@@ -121,16 +125,28 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting up");
 
-    let client = jsonrpc::StarknetRpcClient::new(
+    // Set up JSON-RPC client
+    let http_client = reqwest_starknet_rs::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let client = JsonRpcClient::new(HttpTransport::new_with_client(
         config.node_url.clone(),
-        config.staking_contract_address,
-        config.attestation_contract_address,
-    )
-    .context("Creating JSON-RPC client")?;
+        http_client,
+    ));
+
+    let chain_id = client.chain_id().await.context("Getting chain ID")?;
+    let (staking_contract_address, attestation_contract_address) =
+        contract_addresses_from_config(&config, chain_id)?;
+
+    let client = jsonrpc::StarknetRpcClient::new(
+        client,
+        staking_contract_address,
+        attestation_contract_address,
+    );
 
     // Initialize Prometheus metrics
     let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .add_global_label("network", client.chain_id().await?)
+        .add_global_label("network", client.chain_id_as_string().await?)
         .install_recorder()
         .context("Creating Prometheus metrics recorder")?;
     let addr: std::net::SocketAddr = config.metrics_address.parse()?;
@@ -185,7 +201,7 @@ async fn main() -> anyhow::Result<()> {
     let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(10);
     let mut events_fetcher_handle = tokio::task::spawn(events::fetch(
         node_websocket_url.clone(),
-        config.attestation_contract_address,
+        attestation_contract_address,
         events_tx.clone(),
         reorg_tx.clone(),
     ));
@@ -233,7 +249,7 @@ async fn main() -> anyhow::Result<()> {
             }
             events_fetcher_result = &mut events_fetcher_handle => {
                 tracing::error!(error=?events_fetcher_result, "Events fetcher task has exited, restarting");
-                let events_fetcher_fut = events::fetch(node_websocket_url.clone(), config.attestation_contract_address, events_tx.clone(), reorg_tx.clone());
+                let events_fetcher_fut = events::fetch(node_websocket_url.clone(), attestation_contract_address, events_tx.clone(), reorg_tx.clone());
                 events_fetcher_handle = tokio::task::spawn(async move {
                     tokio::time::sleep(TASK_RESTART_DELAY).await;
                     events_fetcher_fut.await
@@ -306,4 +322,41 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Stopped");
 
     Ok(())
+}
+
+fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Result<(Felt, Felt)> {
+    const MAINNET_STAKING_CONTRACT_ADDRESS: Felt =
+        felt!("0x00ca1702e64c81d9a07b86bd2c540188d92a2c73cf5cc0e508d949015e7e84a7");
+    const SEPOLIA_STAKING_CONTRACT_ADDRESS: Felt =
+        felt!("0x03745ab04a431fc02871a139be6b93d9260b0ff3e779ad9c8b377183b23109f1");
+
+    let staking_contract_address = config.staking_contract_address.or_else(|| {
+        if chain_id == starknet_core::chain_id::MAINNET {
+            Some(MAINNET_STAKING_CONTRACT_ADDRESS)
+        } else if chain_id == starknet_core::chain_id::SEPOLIA {
+            Some(SEPOLIA_STAKING_CONTRACT_ADDRESS)
+        } else {
+            None
+        }
+    }).with_context(||
+            format!("Staking contract address is required for chain ID {}, please specify it explicitly", chain_id),
+    )?;
+
+    const SEPOLIA_ATTESTATION_CONTRACT_ADDRESS: Felt =
+        felt!("0x3f32e152b9637c31bfcf73e434f78591067a01ba070505ff6ee195642c9acfb");
+
+    let attestation_contract_address = config
+        .attestation_contract_address
+        .or_else(|| {
+            if chain_id == starknet_core::chain_id::SEPOLIA {
+                Some(SEPOLIA_ATTESTATION_CONTRACT_ADDRESS)
+            } else {
+                None
+            }
+        })
+        .with_context(||
+            format!("Attestation contract address is required for chain ID {}, please specify it explicitly", chain_id),
+        )?;
+
+    Ok((staking_contract_address, attestation_contract_address))
 }
