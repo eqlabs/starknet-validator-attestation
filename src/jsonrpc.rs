@@ -14,7 +14,6 @@ use starknet_core::types::{
     BroadcastedInvokeTransactionV3, DataAvailabilityMode, ResourceBounds, ResourceBoundsMapping,
 };
 use starknet_crypto::Felt;
-use url::Url;
 
 use crate::{
     attestation_info::AttestationInfo,
@@ -106,7 +105,8 @@ impl Client for StarknetRpcClient {
             .gas_price_estimate_multiplier(3.0)
             .gas_estimate_multiplier(3.0)
             .send()
-            .await?;
+            .await
+            .context("Sending transaction")?;
 
         Ok(result.transaction_hash)
     }
@@ -192,18 +192,15 @@ impl Client for StarknetRpcClient {
 
 impl StarknetRpcClient {
     pub fn new(
-        url: Url,
+        client: JsonRpcClient<HttpTransport>,
         staking_contract_address: Felt,
         attestation_contract_address: Felt,
-    ) -> anyhow::Result<Self> {
-        let http_client = reqwest_starknet_rs::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
-        Ok(StarknetRpcClient {
-            client: JsonRpcClient::new(HttpTransport::new_with_client(url, http_client)),
+    ) -> Self {
+        StarknetRpcClient {
+            client,
             staking_contract_address,
             attestation_contract_address,
-        })
+        }
     }
 
     async fn get_attestation_window(&self) -> anyhow::Result<u16> {
@@ -225,7 +222,7 @@ impl StarknetRpcClient {
         Ok(attestation_window)
     }
 
-    pub async fn chain_id(&self) -> Result<String, ClientError> {
+    pub async fn chain_id_as_string(&self) -> Result<String, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
         let chain_id = starknet::core::utils::parse_cairo_short_string(&chain_id)
             .context("Parsing chain ID as Cairo short string")?;
