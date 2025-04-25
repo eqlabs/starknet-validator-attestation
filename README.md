@@ -21,16 +21,12 @@ You can either use the Docker image we publish on [GitHub](https://github.com/eq
 docker run -it --rm --network host \
   -e VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY="0xdeadbeef" \
   ghcr.io/eqlabs/starknet-validator-attestation \
-  --staking-contract-address 0x03745ab04a431fc02871a139be6b93d9260b0ff3e779ad9c8b377183b23109f1 \
-  --attestation-contract-address 0x03f32e152b9637c31bfcf73e434f78591067a01ba070505ff6ee195642c9acfb \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
   --node-url http://localhost:9545/rpc/v0_8 \
   --local-signer
 ```
 
 Each CLI option can also be set via environment variables. Please check the output of `starknet-validator-attestation --help` for more information.
-
-The private key of the operational account _must_ be set via the `VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY` environment variable.
 
 Log level defaults to `info`. Verbose logging can be enabled by setting the `RUST_LOG` environment variable to `debug`.
 
