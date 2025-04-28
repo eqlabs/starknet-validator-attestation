@@ -30,6 +30,7 @@ async fn metrics_route(axum::extract::State(state): axum::extract::State<State>)
 
 fn describe_metrics() {
     // Starknet
+    let _ = metrics::gauge!("validator_attestation_starknet_latest_block_number");
     metrics::describe_gauge!(
         "validator_attestation_starknet_latest_block_number",
         metrics::Unit::Count,
@@ -37,21 +38,25 @@ fn describe_metrics() {
     );
 
     // Epoch
+    let _ = metrics::gauge!("validator_attestation_current_epoch_id");
     metrics::describe_gauge!(
         "validator_attestation_current_epoch_id",
         metrics::Unit::Count,
         "Current epoch ID"
     );
+    let _ = metrics::gauge!("validator_attestation_current_epoch_starting_block_number");
     metrics::describe_gauge!(
         "validator_attestation_current_epoch_starting_block_number",
         metrics::Unit::Count,
         "Current epoch starting block number"
     );
+    let _ = metrics::gauge!("validator_attestation_current_epoch_length");
     metrics::describe_gauge!(
         "validator_attestation_current_epoch_length",
         metrics::Unit::Count,
         "Current epoch length"
     );
+    let _ = metrics::gauge!("validator_attestation_current_epoch_assigned_block_number");
     metrics::describe_gauge!(
         "validator_attestation_current_epoch_assigned_block_number",
         metrics::Unit::Count,
@@ -59,21 +64,25 @@ fn describe_metrics() {
     );
 
     // Attestation
+    let _ = metrics::gauge!("validator_attestation_last_attestation_timestamp_seconds");
     metrics::describe_gauge!(
         "validator_attestation_last_attestation_timestamp_seconds",
         metrics::Unit::Seconds,
         "Timestamp of the last attestation"
     );
+    let _ = metrics::counter!("validator_attestation_attestation_submitted_count");
     metrics::describe_counter!(
         "validator_attestation_attestation_submitted_count",
         metrics::Unit::Count,
         "Number of successfuly submitted attestations"
     );
+    let _ = metrics::counter!("validator_attestation_attestation_failure_count");
     metrics::describe_counter!(
         "validator_attestation_attestation_failure_count",
         metrics::Unit::Count,
         "Number of failed attestations"
     );
+    let _ = metrics::counter!("validator_attestation_attestation_confirmed_count");
     metrics::describe_counter!(
         "validator_attestation_attestation_confirmed_count",
         metrics::Unit::Count,
