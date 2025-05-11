@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
+use starknet::core::types::BroadcastedInvokeTransactionV3;
 use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext};
-use starknet_core::types::BroadcastedInvokeTransactionV3;
 use starknet_crypto::{Felt, Signature};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
     /// An error encountered by the signer implementation.
     #[error(transparent)]
-    Signing(starknet_core::crypto::EcdsaSignError),
+    Signing(starknet::core::crypto::EcdsaSignError),
     /// A transport error encountered during remote signing.
     #[error(transparent)]
     Transport(reqwest::Error),

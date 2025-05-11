@@ -8,23 +8,17 @@ anyhow = "1.0.97"
 async-trait = "0.1.88"
 axum = "0.8.1"
 clap = { version = "4.5.34", features = ["derive", "env"] }
-futures-util = "0.3.31"
 metrics = "0.24.1"
 metrics-exporter-prometheus = "0.16.2"
-# This is a workaround for starknet-rs using reqwest 0.11.
-reqwest_starknet-rs = { package = "reqwest", version = "0.11", default-features = false, features = [
-    "rustls-tls",
-] }
 reqwest = { version = "0.12.15", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-reqwest-websocket = { version = "0.4.4", features = ["json"] }
 serde = "1.0.219"
 serde_json = "1.0.140"
-starknet = "0.14.0"
-starknet-core = "0.13.0"
+starknet = "0.15.0"
 starknet-crypto = "0.7.4"
+starknet-tokio-tungstenite = "0.1.0"
 thiserror = "2.0.12"
 tokio = { version = "1.44.1", features = ["full"] }
 tracing = "0.1.41"
