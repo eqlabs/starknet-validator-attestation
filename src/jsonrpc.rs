@@ -3,15 +3,13 @@ use starknet::{
     accounts::{Account, AccountError},
     core::{
         types::{
-            BlockId, BlockTag, ContractExecutionError, FunctionCall, InnerContractExecutionError,
-            MaybePendingBlockWithTxHashes,
+            BlockId, BlockTag, BroadcastedInvokeTransactionV3, ContractExecutionError,
+            DataAvailabilityMode, FunctionCall, InnerContractExecutionError,
+            MaybePendingBlockWithTxHashes, ResourceBounds, ResourceBoundsMapping,
         },
         utils::get_selector_from_name,
     },
     providers::{JsonRpcClient, Provider, ProviderError, jsonrpc::HttpTransport},
-};
-use starknet_core::types::{
-    BroadcastedInvokeTransactionV3, DataAvailabilityMode, ResourceBounds, ResourceBoundsMapping,
 };
 use starknet_crypto::Felt;
 

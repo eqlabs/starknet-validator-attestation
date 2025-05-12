@@ -18,7 +18,6 @@ mod jsonrpc;
 mod metrics_exporter;
 mod signer;
 mod state;
-mod subscription;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -126,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Starting up");
 
     // Set up JSON-RPC client
-    let http_client = reqwest_starknet_rs::Client::builder()
+    let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let client = JsonRpcClient::new(HttpTransport::new_with_client(
@@ -334,9 +333,9 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
         felt!("0x03745ab04a431fc02871a139be6b93d9260b0ff3e779ad9c8b377183b23109f1");
 
     let staking_contract_address = config.staking_contract_address.or_else(|| {
-        if chain_id == starknet_core::chain_id::MAINNET {
+        if chain_id == starknet::core::chain_id::MAINNET {
             Some(MAINNET_STAKING_CONTRACT_ADDRESS)
-        } else if chain_id == starknet_core::chain_id::SEPOLIA {
+        } else if chain_id == starknet::core::chain_id::SEPOLIA {
             Some(SEPOLIA_STAKING_CONTRACT_ADDRESS)
         } else {
             None
@@ -351,7 +350,7 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
     let attestation_contract_address = config
         .attestation_contract_address
         .or_else(|| {
-            if chain_id == starknet_core::chain_id::SEPOLIA {
+            if chain_id == starknet::core::chain_id::SEPOLIA {
                 Some(SEPOLIA_ATTESTATION_CONTRACT_ADDRESS)
             } else {
                 None
