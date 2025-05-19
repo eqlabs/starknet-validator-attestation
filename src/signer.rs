@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use starknet::core::types::BroadcastedInvokeTransactionV3;
 use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext};
-use starknet_crypto::{Felt, Signature};
+use starknet_crypto::Felt;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
@@ -43,9 +43,12 @@ impl AttestationSigner {
         hash: &Felt,
         transaction: BroadcastedInvokeTransactionV3,
         chain_id: Felt,
-    ) -> Result<Signature, SignError> {
+    ) -> Result<Vec<Felt>, SignError> {
         let signature = match self {
-            Self::Local(wallet) => wallet.sign_hash(hash).await?,
+            Self::Local(wallet) => {
+                let signature = wallet.sign_hash(hash).await?;
+                vec![signature.r, signature.s]
+            }
             Self::Remote(signer) => signer.sign(transaction, chain_id).await?,
         };
         Ok(signature)
@@ -82,7 +85,7 @@ impl RemoteSigner {
         &self,
         transaction: BroadcastedInvokeTransactionV3,
         chain_id: Felt,
-    ) -> Result<Signature, SignError> {
+    ) -> Result<Vec<Felt>, SignError> {
         let signature = self
             .client
             .post(self.url.join("/sign").unwrap())
@@ -97,10 +100,7 @@ impl RemoteSigner {
             .await
             .map_err(SignError::Transport)?
             .signature;
-        Ok(Signature {
-            r: signature[0],
-            s: signature[1],
-        })
+        Ok(signature)
     }
 
     fn is_interactive(&self, _context: SignerInteractivityContext<'_>) -> bool {
@@ -116,5 +116,5 @@ struct SignRequest {
 
 #[derive(Deserialize)]
 struct SignHashResponse {
-    signature: [Felt; 2],
+    signature: Vec<Felt>,
 }
