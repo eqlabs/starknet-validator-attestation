@@ -208,17 +208,25 @@ async fn main() -> anyhow::Result<()> {
         reorg_tx.clone(),
     ));
 
-    // Handle TERM and INT signals
-    let mut term_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .context("Setting up TERM signal handler")?;
-    let mut int_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .context("Setting up INT signal handler")?;
-
     // Initialize state
-    let attestation_info = client
-        .get_attestation_info(config.staker_operational_address)
-        .await
-        .context("Getting attestation info")?;
+    let attestation_info = loop {
+        match client
+            .get_attestation_info(config.staker_operational_address)
+            .await
+            .context("Getting attestation info")
+        {
+            Ok(attestation_info) => {
+                break attestation_info;
+            }
+            Err(error) => {
+                tracing::info!(
+                    ?error,
+                    "Failed to query initial attestation info, staker not registered, retrying"
+                );
+                tokio::time::sleep(TASK_RESTART_DELAY).await;
+            }
+        }
+    };
     tracing::info!(
         staker_address=?attestation_info.staker_address,
         operational_address=?attestation_info.operational_address,
@@ -230,6 +238,12 @@ async fn main() -> anyhow::Result<()> {
         "Current attestation info"
     );
     let mut state = state::State::from_attestation_info(attestation_info);
+
+    // Handle TERM and INT signals
+    let mut term_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("Setting up TERM signal handler")?;
+    let mut int_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .context("Setting up INT signal handler")?;
 
     loop {
         select! {
