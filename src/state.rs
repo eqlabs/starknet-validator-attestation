@@ -241,18 +241,27 @@ impl State {
     }
 
     fn handle_attestation_successful_event(self, staker_address: Felt, epoch_id: u64) -> Self {
-        let attestation_info = self.attestation_info();
-        if attestation_info.staker_address == staker_address
-            && attestation_info.epoch_id == epoch_id
-        {
-            tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
-            metrics::counter!("validator_attestation_attestation_confirmed_count").increment(1);
-            Self::WaitingForNextEpoch {
-                attestation_info: attestation_info.clone(),
+        match self {
+            State::Attesting {
+                attestation_info,
+                attestation_params,
+            } => {
+                if attestation_info.staker_address == staker_address
+                    && attestation_info.epoch_id == epoch_id
+                {
+                    tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
+                    metrics::counter!("validator_attestation_attestation_confirmed_count")
+                        .increment(1);
+                    Self::WaitingForNextEpoch { attestation_info }
+                } else {
+                    tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
+                    State::Attesting {
+                        attestation_info,
+                        attestation_params,
+                    }
+                }
             }
-        } else {
-            tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
-            self
+            _ => self,
         }
     }
 }
