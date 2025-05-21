@@ -204,7 +204,7 @@ impl State {
                                 .increment(1);
                             }
                             Err(err) => {
-                                tracing::error!(error = %err, "Failed to send attestation transaction");
+                                tracing::error!(error = ?err, "Failed to send attestation transaction");
                                 metrics::counter!(
                                     "validator_attestation_attestation_failure_count"
                                 )
