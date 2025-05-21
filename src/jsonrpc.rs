@@ -277,7 +277,7 @@ where
             .sign(&tx_hash, transaction, self.chain_id)
             .await?;
 
-        Ok(vec![signature.r, signature.s])
+        Ok(signature)
     }
 
     async fn sign_declaration_v3(

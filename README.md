@@ -81,7 +81,7 @@ The API should expose a single `/sign` endpoint:
       "chain_id": "0x534e5f5345504f4c4941"
   }
   ```
-  Response should contain the ECDSA signature values `r` and `s` in an array:
+  Response should contain the signature as an array:
   ```json
   {
       "signature": [
