@@ -358,13 +358,17 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
             format!("Staking contract address is required for chain ID {}, please specify it explicitly", chain_id),
     )?;
 
+    const MAINNET_ATTESTATION_CONTRACT_ADDRESS: Felt =
+        felt!("0x010398fe631af9ab2311840432d507bf7ef4b959ae967f1507928f5afe888a99");
     const SEPOLIA_ATTESTATION_CONTRACT_ADDRESS: Felt =
         felt!("0x3f32e152b9637c31bfcf73e434f78591067a01ba070505ff6ee195642c9acfb");
 
     let attestation_contract_address = config
         .attestation_contract_address
         .or_else(|| {
-            if chain_id == starknet::core::chain_id::SEPOLIA {
+            if chain_id == starknet::core::chain_id::MAINNET {
+                Some(MAINNET_ATTESTATION_CONTRACT_ADDRESS)
+            } else if chain_id == starknet::core::chain_id::SEPOLIA {
                 Some(SEPOLIA_ATTESTATION_CONTRACT_ADDRESS)
             } else {
                 None
