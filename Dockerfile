@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:0.1.71-rust-1.85.1-slim-bookworm AS cargo-chef
+FROM lukemathwalker/cargo-chef:0.1.71-rust-1.87.0-slim-bookworm AS cargo-chef
 WORKDIR /src
 
 FROM cargo-chef AS rust-planner
