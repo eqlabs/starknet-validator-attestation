@@ -104,6 +104,11 @@ const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5
 async fn main() -> anyhow::Result<()> {
     let config = Config::parse();
 
+    // Configure rustls crypto provider.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("rustls crypto provider setup should not fail");
+
     // Set up logging
     match config.log_format {
         LogFormat::Compact => {
