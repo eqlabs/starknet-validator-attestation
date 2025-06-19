@@ -2548,11 +2548,12 @@ dependencies = [
 
 [[package]]
 name = "starknet-tokio-tungstenite"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149e0c359a6bece5d720ad9062160a0cc837576d5394f8c3d504a8fc59d197f2"
+checksum = "36533d996eba116a7d04dbe3c4429f290ddff2c370c2727a56bf87196adabb43"
 dependencies = [
  "futures-util",
+ "log",
  "rand 0.8.5",
  "serde",
  "serde_json",
