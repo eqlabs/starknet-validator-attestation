@@ -88,4 +88,10 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Number of confirmed attestations"
     );
+    let _ = metrics::counter!("validator_attestation_missed_epochs_count");
+    metrics::describe_counter!(
+        "validator_attestation_missed_epochs_count",
+        metrics::Unit::Count,
+        "Number of epochs with no successful attestation"
+    );
 }

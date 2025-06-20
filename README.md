@@ -108,6 +108,7 @@ Available metrics are:
 - `validator_attestation_attestation_submitted_count`: Number of attestations submitted by the validator.
 - `validator_attestation_attestation_failure_count`: Number of attestation transaction submission failures.
 - `validator_attestation_attestation_confirmed_count`: Number of attestations confirmed by the network.
+- `validator_attestation_missed_epochs_count`: Number of epochs with no successful attestation.
 
 The chain ID of the network is exposed as the `network` label on all metrics.
 
