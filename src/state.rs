@@ -222,6 +222,7 @@ impl State {
                 }
                 Ordering::Greater => {
                     // We're past the attestation window
+                    metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
                     State::WaitingForNextEpoch { attestation_info }
                 }
             },
