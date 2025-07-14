@@ -241,6 +241,7 @@ impl State {
                 }
                 Ordering::Greater => {
                     // We're past the attestation window
+                    tracing::warn!("Attestation window expired without submitting attestation");
                     metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
                     State::WaitingForNextEpoch { attestation_info }
                 }
