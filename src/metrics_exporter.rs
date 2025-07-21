@@ -94,4 +94,6 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Number of epochs with no successful attestation"
     );
+
+    metrics::counter!("validator_attestation_missed_epochs_count").absolute(0);
 }
