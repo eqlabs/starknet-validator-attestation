@@ -94,4 +94,10 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Number of epochs with no successful attestation"
     );
+    let _ = metrics::gauge!("validator_attestation_operational_account_balance_strk");
+    metrics::describe_gauge!(
+        "validator_attestation_operational_account_balance_strk",
+        metrics::Unit::Count,
+        "Current STRK balance of the operational account"
+    );
 }

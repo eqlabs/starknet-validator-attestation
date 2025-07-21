@@ -202,6 +202,13 @@ impl State {
                                     "validator_attestation_attestation_submitted_count"
                                 )
                                 .increment(1);
+
+                                // Update operational account balance after spending STRK on attestation
+                                if let Ok(balance) = client.get_strk_balance(attestation_info.operational_address).await {
+                                    let balance_strk = balance as f64 / 1e18;
+                                    metrics::gauge!("validator_attestation_operational_account_balance_strk").set(balance_strk);
+                                    tracing::debug!("Updated operational account balance after attestation: {} STRK", balance_strk);
+                                }
                             }
                             Err(err) => {
                                 tracing::error!(error = ?err, "Failed to send attestation transaction");
@@ -581,6 +588,11 @@ mod tests {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
             Ok(BLOCK_HASH)
+        }
+
+        async fn get_strk_balance(&self, _account_address: Felt) -> Result<u128, ClientError> {
+            // Return a mock balance of 100 STRK
+            Ok(100_000_000_000_000_000_000) // 100 * 10^18
         }
     }
 }
