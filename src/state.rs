@@ -202,13 +202,6 @@ impl State {
                                     "validator_attestation_attestation_submitted_count"
                                 )
                                 .increment(1);
-
-                                // Update operational account balance after spending STRK on attestation
-                                if let Ok(balance) = client.get_strk_balance(attestation_info.operational_address).await {
-                                    let balance_strk = balance as f64 / 1e18;
-                                    metrics::gauge!("validator_attestation_operational_account_balance_strk").set(balance_strk);
-                                    tracing::debug!("Updated operational account balance after attestation: {} STRK", balance_strk);
-                                }
                             }
                             Err(err) => {
                                 tracing::error!(error = ?err, "Failed to send attestation transaction");
@@ -218,6 +211,16 @@ impl State {
                                 .increment(1);
                             }
                         };
+
+                        // Update operational account balance after any attestation attempt
+                        // Even if RPC returns error, the transaction might have succeeded on-chain
+                        if let Ok(balance) = client.get_strk_balance(attestation_info.operational_address).await {
+                            let balance_strk = balance as f64 / 1e18;
+                            metrics::gauge!("validator_attestation_operational_account_balance_strk").set(balance_strk);
+                            tracing::debug!("Updated operational account balance after attestation attempt: {} STRK", balance_strk);
+                        } else {
+                            tracing::warn!("Failed to update operational account balance after attestation attempt");
+                        }
                         State::Attesting {
                             attestation_info,
                             attestation_params,
