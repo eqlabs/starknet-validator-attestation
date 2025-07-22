@@ -203,9 +203,7 @@ impl Client for StarknetRpcClient {
             )
             .await?;
 
-        let balance: u128 = result[0]
-            .try_into()
-            .context("Converting STRK balance")?;
+        let balance: u128 = result[0].try_into().context("Converting STRK balance")?;
         Ok(balance)
     }
 }

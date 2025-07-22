@@ -121,12 +121,17 @@ impl State {
             // Update operational account balance at the start of new epoch
             if let Ok(balance) = client.get_strk_balance(operational_address).await {
                 let balance_strk = balance as f64 / 1e18;
-                metrics::gauge!("validator_attestation_operational_account_balance_strk").set(balance_strk);
-                tracing::debug!("Updated operational account balance for new epoch {}: {} STRK", attestation_info.epoch_id, balance_strk);
+                metrics::gauge!("validator_attestation_operational_account_balance_strk")
+                    .set(balance_strk);
+                tracing::debug!(
+                    epoch_id=%attestation_info.epoch_id,
+                    %balance_strk,
+                    "Updated operational account balance for new epoch",
+                );
             } else {
                 tracing::warn!("Failed to update operational account balance for new epoch");
             }
-            
+
             State::from_attestation_info(attestation_info)
         };
 
