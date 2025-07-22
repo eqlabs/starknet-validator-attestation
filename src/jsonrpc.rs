@@ -6,6 +6,7 @@ use starknet::{
             BlockId, BlockTag, BroadcastedInvokeTransactionV3, ContractExecutionError,
             DataAvailabilityMode, FunctionCall, InnerContractExecutionError,
             MaybePendingBlockWithTxHashes, ResourceBounds, ResourceBoundsMapping,
+            TransactionStatus,
         },
         utils::get_selector_from_name,
     },
@@ -70,6 +71,10 @@ pub trait Client {
         &self,
         staker_address: Felt,
     ) -> Result<bool, ClientError>;
+    async fn attestation_status(
+        &self,
+        transaction_hash: Felt,
+    ) -> Result<TransactionStatus, ClientError>;
     async fn get_attestation_info(
         &self,
         operational_address: Felt,
@@ -109,6 +114,17 @@ impl Client for StarknetRpcClient {
             .context("Sending transaction")?;
 
         Ok(result.transaction_hash)
+    }
+
+    async fn attestation_status(
+        &self,
+        transaction_hash: Felt,
+    ) -> Result<TransactionStatus, ClientError> {
+        self.client
+            .get_transaction_status(transaction_hash)
+            .await
+            .context("Fetching transaction status")
+            .map_err(ClientError::from)
     }
 
     async fn attestation_done_in_current_epoch(
