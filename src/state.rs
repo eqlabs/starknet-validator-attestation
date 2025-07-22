@@ -117,6 +117,21 @@ impl State {
                 attestation_window=%attestation_info.attestation_window,
                 "New epoch started"
             );
+
+            // Update operational account balance at the start of new epoch
+            if let Ok(balance) = client.get_strk_balance(operational_address).await {
+                let balance_strk = balance as f64 / 1e18;
+                metrics::gauge!("validator_attestation_operational_account_balance_strk")
+                    .set(balance_strk);
+                tracing::debug!(
+                    epoch_id=%attestation_info.epoch_id,
+                    %balance_strk,
+                    "Updated operational account balance for new epoch",
+                );
+            } else {
+                tracing::warn!("Failed to update operational account balance for new epoch");
+            }
+
             State::from_attestation_info(attestation_info)
         };
 
@@ -211,6 +226,7 @@ impl State {
                                 .increment(1);
                             }
                         };
+
                         State::Attesting {
                             attestation_info,
                             attestation_params,
@@ -581,6 +597,11 @@ mod tests {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
             Ok(BLOCK_HASH)
+        }
+
+        async fn get_strk_balance(&self, _account_address: Felt) -> Result<u128, ClientError> {
+            // Return a mock balance of 100 STRK
+            Ok(100_000_000_000_000_000_000) // 100 * 10^18
         }
     }
 }

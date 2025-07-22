@@ -75,12 +75,14 @@ pub trait Client {
         operational_address: Felt,
     ) -> Result<AttestationInfo, ClientError>;
     async fn get_block_hash(&self, block_number: u64) -> Result<Felt, ClientError>;
+    async fn get_strk_balance(&self, account_address: Felt) -> Result<u128, ClientError>;
 }
 
 pub struct StarknetRpcClient {
     client: JsonRpcClient<HttpTransport>,
     staking_contract_address: Felt,
     attestation_contract_address: Felt,
+    strk_contract_address: Felt,
 }
 
 impl Client for StarknetRpcClient {
@@ -186,6 +188,24 @@ impl Client for StarknetRpcClient {
             }
         }
     }
+
+    async fn get_strk_balance(&self, account_address: Felt) -> Result<u128, ClientError> {
+        let result = self
+            .client
+            .call(
+                FunctionCall {
+                    contract_address: self.strk_contract_address,
+                    entry_point_selector: get_selector_from_name("balance_of")
+                        .context("Getting balance_of selector")?,
+                    calldata: vec![account_address],
+                },
+                BlockId::Tag(BlockTag::Pending),
+            )
+            .await?;
+
+        let balance: u128 = result[0].try_into().context("Converting STRK balance")?;
+        Ok(balance)
+    }
 }
 
 impl StarknetRpcClient {
@@ -193,11 +213,13 @@ impl StarknetRpcClient {
         client: JsonRpcClient<HttpTransport>,
         staking_contract_address: Felt,
         attestation_contract_address: Felt,
+        strk_contract_address: Felt,
     ) -> Self {
         StarknetRpcClient {
             client,
             staking_contract_address,
             attestation_contract_address,
+            strk_contract_address,
         }
     }
 

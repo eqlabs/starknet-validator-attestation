@@ -141,11 +141,13 @@ async fn main() -> anyhow::Result<()> {
     let chain_id = client.chain_id().await.context("Getting chain ID")?;
     let (staking_contract_address, attestation_contract_address) =
         contract_addresses_from_config(&config, chain_id)?;
+    let strk_contract_address = strk_contract_address_from_chain_id(chain_id)?;
 
     let client = jsonrpc::StarknetRpcClient::new(
         client,
         staking_contract_address,
         attestation_contract_address,
+        strk_contract_address,
     );
 
     // Initialize Prometheus metrics
@@ -243,6 +245,9 @@ async fn main() -> anyhow::Result<()> {
         "Current attestation info"
     );
     let mut state = state::State::from_attestation_info(attestation_info);
+
+    // Initialize operational account balance metric
+    update_operational_balance(&client, config.staker_operational_address).await;
 
     // Handle TERM and INT signals
     let mut term_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -384,4 +389,38 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
         )?;
 
     Ok((staking_contract_address, attestation_contract_address))
+}
+
+fn strk_contract_address_from_chain_id(chain_id: Felt) -> anyhow::Result<Felt> {
+    // STRK contract address (same for both mainnet and testnet currently)
+    const STRK_CONTRACT_ADDRESS: Felt =
+        felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
+
+    // Support mainnet and sepolia (both use same contract address currently)
+    if chain_id == starknet::core::chain_id::MAINNET
+        || chain_id == starknet::core::chain_id::SEPOLIA
+    {
+        Ok(STRK_CONTRACT_ADDRESS)
+    } else {
+        anyhow::bail!(
+            "STRK contract address is not configured for chain ID {}",
+            chain_id
+        )
+    }
+}
+
+// Helper function to update operational account balance
+async fn update_operational_balance<C: Client>(client: &C, operational_address: Felt) {
+    match client.get_strk_balance(operational_address).await {
+        Ok(balance) => {
+            // Convert to floating point STRK (divide by 10^18)
+            let balance_strk = balance as f64 / 1e18;
+            metrics::gauge!("validator_attestation_operational_account_balance_strk")
+                .set(balance_strk);
+            tracing::debug!(%balance_strk, "Updated operational account balance");
+        }
+        Err(err) => {
+            tracing::warn!(error=%err, "Failed to get operational account STRK balance");
+        }
+    }
 }

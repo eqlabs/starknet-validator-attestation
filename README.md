@@ -109,6 +109,7 @@ Available metrics are:
 - `validator_attestation_attestation_failure_count`: Number of attestation transaction submission failures.
 - `validator_attestation_attestation_confirmed_count`: Number of attestations confirmed by the network.
 - `validator_attestation_missed_epochs_count`: Number of epochs with no successful attestation.
+- `validator_attestation_operational_account_balance_strk`: Current STRK token balance of the operational account.
 
 The chain ID of the network is exposed as the `network` label on all metrics.
 
