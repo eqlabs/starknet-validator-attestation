@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, time::SystemTime};
 
 use anyhow::Context;
+use starknet::core::types::{TransactionExecutionStatus, TransactionStatus};
 use starknet_crypto::Felt;
 
 use crate::{
@@ -45,6 +46,11 @@ pub enum State {
         attestation_info: AttestationInfo,
         attestation_params: AttestationParams,
     },
+    AttestationSubmitted {
+        attestation_info: AttestationInfo,
+        attestation_params: AttestationParams,
+        transaction_hash: Felt,
+    },
     WaitingForNextEpoch {
         attestation_info: AttestationInfo,
     },
@@ -75,6 +81,9 @@ impl State {
                 attestation_info, ..
             } => attestation_info,
             State::Attesting {
+                attestation_info, ..
+            } => attestation_info,
+            State::AttestationSubmitted {
                 attestation_info, ..
             } => attestation_info,
             State::WaitingForNextEpoch { attestation_info } => attestation_info,
@@ -190,54 +199,13 @@ impl State {
                     attestation_params,
                 },
                 Ordering::Equal => {
-                    let attestation_done = client
-                        .attestation_done_in_current_epoch(attestation_info.staker_address)
-                        .await
-                        .context("Checking attestation status")?;
-
-                    if !attestation_done {
-                        tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
-                        let result = client
-                            .attest(
-                                attestation_info.operational_address,
-                                signer,
-                                attestation_params.block_hash,
-                            )
-                            .await;
-                        match result {
-                            Ok(transaction_hash) => {
-                                tracing::info!(?transaction_hash, "Attestation transaction sent");
-
-                                metrics::gauge!(
-                                    "validator_attestation_last_attestation_timestamp_seconds"
-                                )
-                                .set(
-                                    SystemTime::now()
-                                        .duration_since(SystemTime::UNIX_EPOCH)?
-                                        .as_secs_f64(),
-                                );
-                                metrics::counter!(
-                                    "validator_attestation_attestation_submitted_count"
-                                )
-                                .increment(1);
-                            }
-                            Err(err) => {
-                                tracing::error!(error = ?err, "Failed to send attestation transaction");
-                                metrics::counter!(
-                                    "validator_attestation_attestation_failure_count"
-                                )
-                                .increment(1);
-                            }
-                        };
-
-                        State::Attesting {
-                            attestation_info,
-                            attestation_params,
-                        }
-                    } else {
-                        tracing::debug!("Attestation already done");
-                        State::WaitingForNextEpoch { attestation_info }
-                    }
+                    Self::check_and_submit_attestation(
+                        client,
+                        signer,
+                        attestation_info,
+                        attestation_params,
+                    )
+                    .await?
                 }
                 Ordering::Greater => {
                     // We're past the attestation window
@@ -246,10 +214,161 @@ impl State {
                     State::WaitingForNextEpoch { attestation_info }
                 }
             },
+            State::AttestationSubmitted {
+                attestation_info,
+                attestation_params,
+                transaction_hash,
+            } => {
+                match attestation_params.in_window(block_number) {
+                    Ordering::Less | Ordering::Equal => {
+                        // Transaction already submitted - wait for confirmation
+                        let status = client
+                            .attestation_status(transaction_hash)
+                            .await
+                            .context("Checking attestation transaction status")?;
+
+                        match status {
+                            TransactionStatus::Received => State::AttestationSubmitted {
+                                attestation_info,
+                                attestation_params,
+                                transaction_hash,
+                            },
+                            TransactionStatus::Rejected => {
+                                tracing::warn!(
+                                    %transaction_hash,
+                                    "Attestation transaction was rejected"
+                                );
+
+                                metrics::counter!(
+                                    "validator_attestation_attestation_failure_count"
+                                )
+                                .increment(1);
+
+                                Self::check_and_submit_attestation(
+                                    client,
+                                    signer,
+                                    attestation_info,
+                                    attestation_params,
+                                )
+                                .await?
+                            }
+                            TransactionStatus::AcceptedOnL2(execution_result)
+                            | TransactionStatus::AcceptedOnL1(execution_result)
+                                if execution_result.status()
+                                    == TransactionExecutionStatus::Reverted =>
+                            {
+                                tracing::warn!(
+                                    %transaction_hash,
+                                    "Attestation transaction has reverted"
+                                );
+                                metrics::counter!(
+                                    "validator_attestation_attestation_failure_count"
+                                )
+                                .increment(1);
+
+                                Self::check_and_submit_attestation(
+                                    client,
+                                    signer,
+                                    attestation_info,
+                                    attestation_params,
+                                )
+                                .await?
+                            }
+                            TransactionStatus::AcceptedOnL2(_)
+                            | TransactionStatus::AcceptedOnL1(_) => {
+                                // Attestation transaction confirmed
+                                tracing::info!(staker_address=?attestation_info.staker_address, epoch_id=%attestation_info.epoch_id, "Attestation confirmed");
+                                metrics::counter!(
+                                    "validator_attestation_attestation_confirmed_count"
+                                )
+                                .increment(1);
+                                Self::WaitingForNextEpoch { attestation_info }
+                            }
+                        }
+                    }
+                    Ordering::Greater => {
+                        tracing::warn!(
+                            ?transaction_hash,
+                            "Attestation window expired without confirmation"
+                        );
+                        metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
+                        State::WaitingForNextEpoch { attestation_info }
+                    }
+                }
+            }
             State::WaitingForNextEpoch { attestation_info } => {
                 State::WaitingForNextEpoch { attestation_info }
             }
         })
+    }
+
+    async fn check_and_submit_attestation<C: crate::jsonrpc::Client + Send + Sync + 'static>(
+        client: &C,
+        signer: &AttestationSigner,
+        attestation_info: AttestationInfo,
+        attestation_params: AttestationParams,
+    ) -> anyhow::Result<Self> {
+        let attestation_done = client
+            .attestation_done_in_current_epoch(attestation_info.staker_address)
+            .await
+            .context("Checking attestation status")?;
+
+        let next_state = if !attestation_done {
+            match Self::submit_attestation(client, signer, &attestation_info, &attestation_params)
+                .await
+            {
+                Ok(transaction_hash) => Self::AttestationSubmitted {
+                    attestation_info,
+                    attestation_params,
+                    transaction_hash,
+                },
+                Err(_) => Self::Attesting {
+                    attestation_info,
+                    attestation_params,
+                },
+            }
+        } else {
+            tracing::debug!("Attestation already done");
+            Self::WaitingForNextEpoch { attestation_info }
+        };
+
+        Ok(next_state)
+    }
+
+    async fn submit_attestation<C: crate::jsonrpc::Client + Send + Sync + 'static>(
+        client: &C,
+        signer: &AttestationSigner,
+        attestation_info: &AttestationInfo,
+        attestation_params: &AttestationParams,
+    ) -> anyhow::Result<Felt> {
+        tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
+        let result = client
+            .attest(
+                attestation_info.operational_address,
+                signer,
+                attestation_params.block_hash,
+            )
+            .await;
+        match result {
+            Ok(transaction_hash) => {
+                tracing::info!(?transaction_hash, "Attestation transaction sent");
+
+                metrics::gauge!("validator_attestation_last_attestation_timestamp_seconds").set(
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)?
+                        .as_secs_f64(),
+                );
+                metrics::counter!("validator_attestation_attestation_submitted_count").increment(1);
+
+                Ok(transaction_hash)
+            }
+            Err(err) => {
+                tracing::error!(error = ?err, "Failed to send attestation transaction");
+                metrics::counter!("validator_attestation_attestation_failure_count").increment(1);
+
+                Err(err.into())
+            }
+        }
     }
 
     pub fn handle_new_event(self, event: AttestationEvent) -> Self {
@@ -282,6 +401,27 @@ impl State {
                     }
                 }
             }
+            State::AttestationSubmitted {
+                attestation_info,
+                attestation_params,
+                transaction_hash,
+            } => {
+                if attestation_info.staker_address == staker_address
+                    && attestation_info.epoch_id == epoch_id
+                {
+                    tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
+                    metrics::counter!("validator_attestation_attestation_confirmed_count")
+                        .increment(1);
+                    Self::WaitingForNextEpoch { attestation_info }
+                } else {
+                    tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
+                    State::AttestationSubmitted {
+                        attestation_info,
+                        attestation_params,
+                        transaction_hash,
+                    }
+                }
+            }
             _ => self,
         }
     }
@@ -293,6 +433,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use starknet::{
+        core::types::ExecutionResult,
         macros::felt,
         signers::{LocalWallet, SigningKey},
     };
@@ -324,7 +465,7 @@ mod tests {
     const TRANSACTION_HASH: Felt = felt!("0xabcdef123456789");
 
     #[tokio::test]
-    async fn test_normal_flow() {
+    async fn test_normal_flow_with_event_confirmation() {
         let initial_attestation_info = AttestationInfo {
             staker_address: STAKER_ADDRESS,
             operational_address: OPERATIONAL_ADDRESS,
@@ -345,7 +486,10 @@ mod tests {
         };
         let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
 
-        let client = MockClient::new(next_attestation_info.clone());
+        let client = MockClient::new(
+            next_attestation_info.clone(),
+            TransactionStatus::AcceptedOnL1(ExecutionResult::Succeeded),
+        );
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
@@ -393,7 +537,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_matches!(&state, State::Attesting { .. });
+        assert_matches!(&state, State::AttestationSubmitted { transaction_hash, .. } if *transaction_hash == TRANSACTION_HASH);
         assert!(client.attestation_sent());
 
         // Confirmation event for the attestation
@@ -402,6 +546,268 @@ mod tests {
             epoch_id: EPOCH_ID,
         });
         assert_matches!(state, State::WaitingForNextEpoch { .. });
+
+        // First block of next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_attestation_info.epoch_len,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::BeforeBlockToAttest { attestation_info, block_to_attest } if *attestation_info == next_attestation_info && *block_to_attest == next_block_to_attest);
+
+        // Block to attest in the next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                next_attestation_info.calculate_expected_attestation_block(),
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: next_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: next_block_to_attest + next_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+    }
+
+    #[tokio::test]
+    async fn test_normal_flow_with_transaction_status_confirmation() {
+        let initial_attestation_info = AttestationInfo {
+            staker_address: STAKER_ADDRESS,
+            operational_address: OPERATIONAL_ADDRESS,
+            stake: STAKE,
+            epoch_id: EPOCH_ID,
+            current_epoch_starting_block: 0,
+            epoch_len: 40,
+            attestation_window: 20,
+        };
+        let initial_block_to_attest =
+            initial_attestation_info.calculate_expected_attestation_block();
+
+        let next_attestation_info: AttestationInfo = AttestationInfo {
+            epoch_id: EPOCH_ID + 1,
+            current_epoch_starting_block: initial_attestation_info.current_epoch_starting_block
+                + initial_attestation_info.epoch_len,
+            ..initial_attestation_info
+        };
+        let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
+
+        let client = MockClient::new(
+            next_attestation_info.clone(),
+            TransactionStatus::AcceptedOnL1(ExecutionResult::Succeeded),
+        );
+        let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
+            SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
+        ));
+        let state = State::from_attestation_info(initial_attestation_info.clone());
+
+        // Block before the block to attest
+        let state = state
+            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .await
+            .unwrap();
+        assert_matches!(
+            &state,
+            State::BeforeBlockToAttest {
+                block_to_attest,
+                attestation_info
+            } if *block_to_attest == initial_block_to_attest && *attestation_info == initial_attestation_info
+        );
+
+        // Block to attest
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: initial_block_to_attest + initial_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+
+        // First block within the attestation window
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::AttestationSubmitted { transaction_hash, .. } if *transaction_hash == TRANSACTION_HASH);
+        assert!(client.attestation_sent());
+
+        // The next block should trigger checking the transaction status and result in confirmation
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW + 1,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(state, State::WaitingForNextEpoch { .. });
+
+        // First block of next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_attestation_info.epoch_len,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::BeforeBlockToAttest { attestation_info, block_to_attest } if *attestation_info == next_attestation_info && *block_to_attest == next_block_to_attest);
+
+        // Block to attest in the next epoch
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                next_attestation_info.calculate_expected_attestation_block(),
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: next_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: next_block_to_attest + next_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+    }
+
+    #[tokio::test]
+    async fn test_reverted_attestation_transaction_triggers_retry() {
+        let initial_attestation_info = AttestationInfo {
+            staker_address: STAKER_ADDRESS,
+            operational_address: OPERATIONAL_ADDRESS,
+            stake: STAKE,
+            epoch_id: EPOCH_ID,
+            current_epoch_starting_block: 0,
+            epoch_len: 40,
+            attestation_window: 20,
+        };
+        let initial_block_to_attest =
+            initial_attestation_info.calculate_expected_attestation_block();
+
+        let next_attestation_info: AttestationInfo = AttestationInfo {
+            epoch_id: EPOCH_ID + 1,
+            current_epoch_starting_block: initial_attestation_info.current_epoch_starting_block
+                + initial_attestation_info.epoch_len,
+            ..initial_attestation_info
+        };
+        let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
+
+        let mut client = MockClient::new(
+            next_attestation_info.clone(),
+            TransactionStatus::AcceptedOnL1(ExecutionResult::Reverted {
+                reason: "Some reason".into(),
+            }),
+        );
+        let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
+            SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
+        ));
+        let state = State::from_attestation_info(initial_attestation_info.clone());
+
+        // Block before the block to attest
+        let state = state
+            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .await
+            .unwrap();
+        assert_matches!(
+            &state,
+            State::BeforeBlockToAttest {
+                block_to_attest,
+                attestation_info
+            } if *block_to_attest == initial_block_to_attest && *attestation_info == initial_attestation_info
+        );
+
+        // Block to attest
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::Attesting { attestation_params, .. } if *attestation_params == AttestationParams {
+            block_hash: BLOCK_HASH,
+            start_of_attestation_window: initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+            end_of_attestation_window: initial_block_to_attest + initial_attestation_info.attestation_window as u64,
+        });
+        assert!(!client.attestation_sent());
+
+        // First block within the attestation window
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::AttestationSubmitted { transaction_hash, .. } if *transaction_hash == TRANSACTION_HASH);
+        assert!(client.attestation_sent());
+
+        // The next block should trigger checking the transaction status and we expect a retry
+        client.clear_flags();
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW + 1,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::AttestationSubmitted { transaction_hash, .. } if *transaction_hash == TRANSACTION_HASH);
+        assert!(client.attestation_sent());
+
+        // The next block should trigger checking the transaction status and we expect a success
+        client.clear_flags();
+        client.attestation_status = TransactionStatus::AcceptedOnL2(ExecutionResult::Succeeded);
+        let state = state
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                initial_block_to_attest + MIN_ATTESTATION_WINDOW + 2,
+                BLOCK_HASH,
+            )
+            .await
+            .unwrap();
+        assert_matches!(&state, State::WaitingForNextEpoch { .. });
+        assert!(!client.attestation_sent());
 
         // First block of next epoch
         let state = state
@@ -457,7 +863,10 @@ mod tests {
         };
         let next_block_to_attest = next_attestation_info.calculate_expected_attestation_block();
 
-        let client = MockClient::new(next_attestation_info.clone());
+        let client = MockClient::new(
+            next_attestation_info.clone(),
+            TransactionStatus::AcceptedOnL1(ExecutionResult::Succeeded),
+        );
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
@@ -493,7 +902,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_matches!(&state, State::Attesting { .. });
+        assert_matches!(&state, State::AttestationSubmitted { transaction_hash, .. } if *transaction_hash == TRANSACTION_HASH);
         assert!(client.attestation_sent());
 
         // Confirmation event for the attestation
@@ -539,14 +948,16 @@ mod tests {
         attestation_info: AttestationInfo,
         attestation_sent: AtomicBool,
         block_hash_queried: AtomicBool,
+        attestation_status: TransactionStatus,
     }
 
     impl MockClient {
-        fn new(attestation_info: AttestationInfo) -> Self {
+        fn new(attestation_info: AttestationInfo, attestation_status: TransactionStatus) -> Self {
             MockClient {
                 attestation_info,
                 attestation_sent: AtomicBool::new(false),
                 block_hash_queried: AtomicBool::new(false),
+                attestation_status,
             }
         }
 
@@ -558,6 +969,13 @@ mod tests {
         fn block_hash_queried(&self) -> bool {
             self.block_hash_queried
                 .load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        fn clear_flags(&mut self) {
+            self.attestation_sent
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            self.block_hash_queried
+                .store(false, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -575,6 +993,15 @@ mod tests {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
             Ok(TRANSACTION_HASH)
+        }
+
+        async fn attestation_status(
+            &self,
+            transaction_hash: Felt,
+        ) -> Result<TransactionStatus, ClientError> {
+            assert_eq!(transaction_hash, TRANSACTION_HASH);
+
+            Ok(self.attestation_status.clone())
         }
 
         async fn attestation_done_in_current_epoch(
