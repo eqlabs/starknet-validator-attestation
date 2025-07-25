@@ -209,8 +209,8 @@ impl State {
                 }
                 Ordering::Greater => {
                     // We're past the attestation window
-                    tracing::warn!("Attestation window expired without submitting attestation");
-                    metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
+                    Self::ckeck_and_mark_epoch_as_missed(client, attestation_info.staker_address)
+                        .await;
                     State::WaitingForNextEpoch { attestation_info }
                 }
             },
@@ -287,11 +287,13 @@ impl State {
                         }
                     }
                     Ordering::Greater => {
-                        tracing::warn!(
-                            ?transaction_hash,
-                            "Attestation window expired without confirmation"
-                        );
-                        metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
+                        // Check if attestation was actually confirmed before marking epoch as missed
+                        Self::ckeck_and_mark_epoch_as_missed(
+                            client,
+                            attestation_info.staker_address,
+                        )
+                        .await;
+
                         State::WaitingForNextEpoch { attestation_info }
                     }
                 }
@@ -367,6 +369,36 @@ impl State {
                 metrics::counter!("validator_attestation_attestation_failure_count").increment(1);
 
                 Err(err.into())
+            }
+        }
+    }
+
+    async fn ckeck_and_mark_epoch_as_missed<C: crate::jsonrpc::Client + Send + Sync + 'static>(
+        client: &C,
+        staker_address: Felt,
+    ) {
+        // Check if attestation was already done for this epoch before marking as missed
+        match client
+            .attestation_done_in_current_epoch(staker_address)
+            .await
+        {
+            Ok(false) => {
+                tracing::warn!(
+                    "Attestation window expired without submitting or confirming an attestation"
+                );
+                metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
+            }
+            Ok(true) => {
+                tracing::info!(
+                    "Attestation window expired but attestation was already completed on this epoch"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Failed to check attestation status, assuming missed"
+                );
+                metrics::counter!("validator_attestation_missed_epochs_count").increment(1);
             }
         }
     }
