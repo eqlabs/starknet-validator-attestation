@@ -209,7 +209,7 @@ impl State {
                 }
                 Ordering::Greater => {
                     // We're past the attestation window
-                    Self::ckeck_and_mark_epoch_as_missed(client, attestation_info.staker_address)
+                    Self::check_and_mark_epoch_as_missed(client, attestation_info.staker_address)
                         .await;
                     State::WaitingForNextEpoch { attestation_info }
                 }
@@ -288,7 +288,7 @@ impl State {
                     }
                     Ordering::Greater => {
                         // Check if attestation was actually confirmed before marking epoch as missed
-                        Self::ckeck_and_mark_epoch_as_missed(
+                        Self::check_and_mark_epoch_as_missed(
                             client,
                             attestation_info.staker_address,
                         )
@@ -373,7 +373,7 @@ impl State {
         }
     }
 
-    async fn ckeck_and_mark_epoch_as_missed<C: crate::jsonrpc::Client + Send + Sync + 'static>(
+    async fn check_and_mark_epoch_as_missed<C: crate::jsonrpc::Client + Send + Sync + 'static>(
         client: &C,
         staker_address: Felt,
     ) {
