@@ -259,14 +259,14 @@ impl State {
                             {
                                 tracing::warn!(
                                     %transaction_hash,
-                                    "Attestation transaction has reverted"
+                                    "Attestation transaction has reverted - try to retry..."
                                 );
                                 metrics::counter!(
                                     "validator_attestation_attestation_failure_count"
                                 )
                                 .increment(1);
 
-                                Self::check_and_submit_attestation(
+                                Self::smart_retry_after_reverted(
                                     client,
                                     signer,
                                     attestation_info,
@@ -369,6 +369,107 @@ impl State {
                 metrics::counter!("validator_attestation_attestation_failure_count").increment(1);
 
                 Err(err.into())
+            }
+        }
+    }
+
+    /// Smart retry after REVERTED: first normal retry, then with incremented nonce if InvalidTransactionNonce
+    async fn smart_retry_after_reverted<C: crate::jsonrpc::Client + Send + Sync + 'static>(
+        client: &C,
+        signer: &AttestationSigner,
+        attestation_info: AttestationInfo,
+        attestation_params: AttestationParams,
+    ) -> anyhow::Result<Self> {
+        // Check if attestation is already done
+        let attestation_done = client
+            .attestation_done_in_current_epoch(attestation_info.staker_address)
+            .await
+            .context("Checking attestation status")?;
+
+        if attestation_done {
+            tracing::debug!("Attestation already done for this epoch");
+            return Ok(Self::WaitingForNextEpoch { attestation_info });
+        }
+
+        // Get nonce first for potential use in step 2
+        let current_nonce = client
+            .get_nonce(attestation_info.operational_address)
+            .await
+            .context("Getting current nonce before retry")?;
+
+        // Step 1: Try normal retry first (original logic)
+        match Self::submit_attestation(client, signer, &attestation_info, &attestation_params).await
+        {
+            Ok(transaction_hash) => {
+                tracing::info!(?transaction_hash, "Attestation transaction sent");
+                Ok(Self::AttestationSubmitted {
+                    attestation_info,
+                    attestation_params,
+                    transaction_hash,
+                })
+            }
+            Err(err) => {
+                let err_str = format!("{:?}", err);
+                if err_str.contains("InvalidTransactionNonce") {
+                    tracing::warn!(
+                        "Normal retry failed with InvalidTransactionNonce, trying with nonce+1"
+                    );
+
+                    // Step 2: Use current_nonce + 1 that we fetched earlier
+                    let incremented_nonce = current_nonce + starknet_crypto::Felt::ONE;
+
+                    match client
+                        .attest_with_nonce(
+                            attestation_info.operational_address,
+                            signer,
+                            attestation_params.block_hash,
+                            incremented_nonce,
+                        )
+                        .await
+                    {
+                        Ok(transaction_hash) => {
+                            tracing::info!(?transaction_hash, "Attestation transaction sent");
+                            metrics::gauge!(
+                                "validator_attestation_last_attestation_timestamp_seconds"
+                            )
+                            .set(
+                                SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)?
+                                    .as_secs_f64(),
+                            );
+                            metrics::counter!("validator_attestation_attestation_submitted_count")
+                                .increment(1);
+
+                            Ok(Self::AttestationSubmitted {
+                                attestation_info,
+                                attestation_params,
+                                transaction_hash,
+                            })
+                        }
+                        Err(retry_err) => {
+                            tracing::error!(?retry_err, "Failed to retry with nonce+1");
+                            metrics::counter!("validator_attestation_attestation_failure_count")
+                                .increment(1);
+
+                            Ok(Self::Attesting {
+                                attestation_info,
+                                attestation_params,
+                            })
+                        }
+                    }
+                } else {
+                    tracing::error!(
+                        ?err,
+                        "Retry reverted with different error, going back to Attesting"
+                    );
+                    metrics::counter!("validator_attestation_attestation_failure_count")
+                        .increment(1);
+
+                    Ok(Self::Attesting {
+                        attestation_info,
+                        attestation_params,
+                    })
+                }
             }
         }
     }
@@ -1017,6 +1118,27 @@ mod tests {
             operational_address: Felt,
             _signer: &AttestationSigner,
             block_hash: Felt,
+        ) -> Result<Felt, ClientError> {
+            assert_eq!(operational_address, OPERATIONAL_ADDRESS);
+            assert_eq!(block_hash, BLOCK_HASH);
+
+            self.attestation_sent
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(TRANSACTION_HASH)
+        }
+
+        async fn get_nonce(&self, address: Felt) -> Result<Felt, ClientError> {
+            assert_eq!(address, OPERATIONAL_ADDRESS);
+            Ok(Felt::ZERO) // Mock nonce
+        }
+
+        async fn attest_with_nonce(
+            &self,
+            operational_address: Felt,
+            _signer: &AttestationSigner,
+            block_hash: Felt,
+            _nonce: Felt,
         ) -> Result<Felt, ClientError> {
             assert_eq!(operational_address, OPERATIONAL_ADDRESS);
             assert_eq!(block_hash, BLOCK_HASH);

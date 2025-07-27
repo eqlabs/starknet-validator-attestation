@@ -67,6 +67,14 @@ pub trait Client {
         signer: &AttestationSigner,
         block_hash: Felt,
     ) -> Result<Felt, ClientError>;
+    async fn get_nonce(&self, address: Felt) -> Result<Felt, ClientError>;
+    async fn attest_with_nonce(
+        &self,
+        operational_address: Felt,
+        signer: &AttestationSigner,
+        block_hash: Felt,
+        nonce: Felt,
+    ) -> Result<Felt, ClientError>;
     async fn attestation_done_in_current_epoch(
         &self,
         staker_address: Felt,
@@ -112,6 +120,44 @@ impl Client for StarknetRpcClient {
             .send()
             .await
             .context("Sending transaction")?;
+
+        Ok(result.transaction_hash)
+    }
+
+    async fn get_nonce(&self, address: Felt) -> Result<Felt, ClientError> {
+        self.client
+            .get_nonce(
+                starknet::core::types::BlockId::Tag(starknet::core::types::BlockTag::Pending),
+                address,
+            )
+            .await
+            .context("Getting nonce")
+            .map_err(ClientError::from)
+    }
+
+    async fn attest_with_nonce(
+        &self,
+        operational_address: Felt,
+        signer: &AttestationSigner,
+        block_hash: Felt,
+        nonce: Felt,
+    ) -> Result<Felt, ClientError> {
+        let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
+
+        let account = ClearSigningAccount::new(&self.client, signer, operational_address, chain_id);
+
+        let result = account
+            .execute_v3(vec![starknet::core::types::Call {
+                to: self.attestation_contract_address,
+                selector: get_selector_from_name("attest").unwrap(),
+                calldata: vec![block_hash],
+            }])
+            .nonce(nonce)
+            .gas_price_estimate_multiplier(3.0)
+            .gas_estimate_multiplier(3.0)
+            .send()
+            .await
+            .context("Sending transaction with specific nonce")?;
 
         Ok(result.transaction_hash)
     }
