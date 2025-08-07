@@ -235,7 +235,7 @@ impl State {
                             },
                             TransactionStatus::Rejected => {
                                 tracing::warn!(
-                                    %transaction_hash,
+                                    ?transaction_hash,
                                     "Attestation transaction was rejected"
                                 );
 
@@ -258,7 +258,7 @@ impl State {
                                     == TransactionExecutionStatus::Reverted =>
                             {
                                 tracing::warn!(
-                                    %transaction_hash,
+                                    ?transaction_hash,
                                     "Attestation transaction has reverted"
                                 );
                                 metrics::counter!(
