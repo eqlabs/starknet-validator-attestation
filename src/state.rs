@@ -12,8 +12,8 @@ use crate::{
 ///
 /// The block hash to attest must be available at the start of the attestation
 /// window. On Starknet, block hash of block N becomes available at block N +
-/// 10.
-const MIN_ATTESTATION_WINDOW: u64 = 10;
+/// 11.
+const MIN_ATTESTATION_WINDOW: u64 = 11;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttestationParams {
