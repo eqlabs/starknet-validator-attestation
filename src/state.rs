@@ -225,15 +225,23 @@ impl State {
                         let status = client
                             .attestation_status(transaction_hash)
                             .await
-                            .context("Checking attestation transaction status")?;
+                            .context("Checking attestation transaction status");
 
                         match status {
-                            TransactionStatus::Received => State::AttestationSubmitted {
+                            Err(error) => {
+                                tracing::error!(%error, "Failed to query attestation transaction status, retrying on next block");
+                                State::AttestationSubmitted {
+                                    attestation_info,
+                                    attestation_params,
+                                    transaction_hash,
+                                }
+                            }
+                            Ok(TransactionStatus::Received) => State::AttestationSubmitted {
                                 attestation_info,
                                 attestation_params,
                                 transaction_hash,
                             },
-                            TransactionStatus::Rejected => {
+                            Ok(TransactionStatus::Rejected) => {
                                 tracing::warn!(
                                     ?transaction_hash,
                                     "Attestation transaction was rejected"
@@ -252,10 +260,11 @@ impl State {
                                 )
                                 .await?
                             }
-                            TransactionStatus::AcceptedOnL2(execution_result)
-                            | TransactionStatus::AcceptedOnL1(execution_result)
-                                if execution_result.status()
-                                    == TransactionExecutionStatus::Reverted =>
+                            Ok(
+                                TransactionStatus::AcceptedOnL2(execution_result)
+                                | TransactionStatus::AcceptedOnL1(execution_result),
+                            ) if execution_result.status()
+                                == TransactionExecutionStatus::Reverted =>
                             {
                                 tracing::warn!(
                                     ?transaction_hash,
@@ -274,8 +283,10 @@ impl State {
                                 )
                                 .await?
                             }
-                            TransactionStatus::AcceptedOnL2(_)
-                            | TransactionStatus::AcceptedOnL1(_) => {
+                            Ok(
+                                TransactionStatus::AcceptedOnL2(_)
+                                | TransactionStatus::AcceptedOnL1(_),
+                            ) => {
                                 // Attestation transaction confirmed
                                 tracing::info!(staker_address=?attestation_info.staker_address, epoch_id=%attestation_info.epoch_id, "Attestation confirmed");
                                 metrics::counter!(
