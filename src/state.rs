@@ -343,7 +343,7 @@ impl State {
         attestation_info: &AttestationInfo,
         attestation_params: &AttestationParams,
     ) -> anyhow::Result<Felt> {
-        tracing::debug!(block_hash=%attestation_params.block_hash, "Sending attestation transaction");
+        tracing::debug!(block_hash=?attestation_params.block_hash, "Sending attestation transaction");
         let result = client
             .attest(
                 attestation_info.operational_address,
