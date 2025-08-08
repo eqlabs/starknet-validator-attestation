@@ -241,9 +241,10 @@ impl State {
                                 attestation_params,
                                 transaction_hash,
                             },
-                            Ok(TransactionStatus::Rejected) => {
+                            Ok(TransactionStatus::Rejected { reason }) => {
                                 tracing::warn!(
                                     ?transaction_hash,
+                                    %reason,
                                     "Attestation transaction was rejected"
                                 );
 
