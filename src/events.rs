@@ -43,9 +43,9 @@ pub async fn fetch(
             Ok(EventsUpdate::Event(event)) => {
                 tracing::trace!(?event, "Received events notification");
 
-                let selector = event.keys.first().unwrap_or(&Felt::ZERO);
+                let selector = event.emitted_event.keys.first().unwrap_or(&Felt::ZERO);
                 if *selector == SELECTOR_STAKER_ATTESTATION_SUCCESSFUL {
-                    match parse_staker_attestation_successful(&event) {
+                    match parse_staker_attestation_successful(&event.emitted_event) {
                         Ok(event) => event_tx
                             .send(event)
                             .await

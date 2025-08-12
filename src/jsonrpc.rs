@@ -5,7 +5,7 @@ use starknet::{
         types::{
             BlockId, BlockTag, BroadcastedInvokeTransactionV3, ContractExecutionError,
             DataAvailabilityMode, FunctionCall, InnerContractExecutionError,
-            MaybePendingBlockWithTxHashes, ResourceBounds, ResourceBoundsMapping,
+            MaybePreConfirmedBlockWithTxHashes, ResourceBounds, ResourceBoundsMapping,
             TransactionStatus,
         },
         utils::get_selector_from_name,
@@ -142,7 +142,7 @@ impl Client for StarknetRpcClient {
                     .unwrap(),
                     calldata: vec![staker_address],
                 },
-                BlockId::Tag(BlockTag::Pending),
+                BlockId::Tag(BlockTag::Latest),
             )
             .await?;
 
@@ -164,7 +164,7 @@ impl Client for StarknetRpcClient {
                     .unwrap(),
                     calldata: vec![operational_address],
                 },
-                BlockId::Tag(BlockTag::Pending),
+                BlockId::Tag(BlockTag::Latest),
             )
             .await?;
 
@@ -198,9 +198,9 @@ impl Client for StarknetRpcClient {
             .context("Fetching block hash of block to attest")?;
 
         match block {
-            MaybePendingBlockWithTxHashes::Block(block) => Ok(block.block_hash),
-            MaybePendingBlockWithTxHashes::PendingBlock(_) => {
-                Err(anyhow::anyhow!("Received pending block in response").into())
+            MaybePreConfirmedBlockWithTxHashes::Block(block) => Ok(block.block_hash),
+            MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(_) => {
+                Err(anyhow::anyhow!("Received pre-confirmed block in response").into())
             }
         }
     }
@@ -215,7 +215,7 @@ impl Client for StarknetRpcClient {
                         .context("Getting balance_of selector")?,
                     calldata: vec![account_address],
                 },
-                BlockId::Tag(BlockTag::Pending),
+                BlockId::Tag(BlockTag::Latest),
             )
             .await?;
 
@@ -248,7 +248,7 @@ impl StarknetRpcClient {
                     entry_point_selector: get_selector_from_name("attestation_window")?,
                     calldata: vec![],
                 },
-                BlockId::Tag(BlockTag::Pending),
+                BlockId::Tag(BlockTag::Latest),
             )
             .await?;
 
@@ -282,7 +282,7 @@ impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
             signer,
             address,
             chain_id,
-            block_id: BlockId::Tag(BlockTag::Pending),
+            block_id: BlockId::Tag(BlockTag::Latest),
         }
     }
 }
