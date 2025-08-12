@@ -236,31 +236,15 @@ impl State {
                                     transaction_hash,
                                 }
                             }
-                            Ok(TransactionStatus::Received) => State::AttestationSubmitted {
+                            Ok(
+                                TransactionStatus::Received
+                                | TransactionStatus::Candidate
+                                | TransactionStatus::PreConfirmed(_),
+                            ) => State::AttestationSubmitted {
                                 attestation_info,
                                 attestation_params,
                                 transaction_hash,
                             },
-                            Ok(TransactionStatus::Rejected { reason }) => {
-                                tracing::warn!(
-                                    ?transaction_hash,
-                                    %reason,
-                                    "Attestation transaction was rejected"
-                                );
-
-                                metrics::counter!(
-                                    "validator_attestation_attestation_failure_count"
-                                )
-                                .increment(1);
-
-                                Self::check_and_submit_attestation(
-                                    client,
-                                    signer,
-                                    attestation_info,
-                                    attestation_params,
-                                )
-                                .await?
-                            }
                             Ok(
                                 TransactionStatus::AcceptedOnL2(execution_result)
                                 | TransactionStatus::AcceptedOnL1(execution_result),
