@@ -282,7 +282,7 @@ impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
             signer,
             address,
             chain_id,
-            block_id: BlockId::Tag(BlockTag::Latest),
+            block_id: BlockId::Tag(BlockTag::PreConfirmed),
         }
     }
 }
