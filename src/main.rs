@@ -18,6 +18,7 @@ mod jsonrpc;
 mod metrics_exporter;
 mod signer;
 mod state;
+mod transactions;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -215,6 +216,12 @@ async fn main() -> anyhow::Result<()> {
         reorg_tx.clone(),
     ));
 
+    let (transactions_tx, mut transactions_rx) = tokio::sync::mpsc::channel(10);
+    let mut transactions_fetcher_handle = tokio::task::spawn(transactions::fetch(
+        node_websocket_url.clone(),
+        transactions_tx.clone(),
+    ));
+
     // Initialize state
     let attestation_info = loop {
         match client
@@ -281,6 +288,14 @@ async fn main() -> anyhow::Result<()> {
                     events_fetcher_fut.await
                 });
             }
+            transactions_fetcher_result = &mut transactions_fetcher_handle => {
+                tracing::error!(error=?transactions_fetcher_result, "Transactions fetcher task has exited, restarting");
+                let transactions_fetcher_fut = transactions::fetch(node_websocket_url.clone(), transactions_tx.clone());
+                transactions_fetcher_handle = tokio::task::spawn(async move {
+                    tokio::time::sleep(TASK_RESTART_DELAY).await;
+                    transactions_fetcher_fut.await
+                });
+            }
             new_block_header = new_heads_rx.recv() => {
                 match new_block_header {
                     Some(header) => {
@@ -311,6 +326,16 @@ async fn main() -> anyhow::Result<()> {
                         tracing::debug!(new_state=?state, "State transition complete");
                     },
                     None => tracing::warn!("New event channel closed"),
+                }
+            }
+            transaction = transactions_rx.recv() => {
+                match transaction {
+                    Some(tx) => {
+                        tracing::debug!("Received new transaction: {:?}", tx);
+                        // state = state.handle_new_transaction(&client, &signer, tx).await;
+                        // tracing::debug!(new_state=?state, "State transition complete");
+                    },
+                    None => tracing::warn!("New transaction channel closed"),
                 }
             }
             reorg = reorg_rx.recv() => {
