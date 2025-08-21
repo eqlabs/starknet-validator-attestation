@@ -394,7 +394,7 @@ impl<P: Provider + Send + Sync> ClearSigningAccount<'_, P> {
                     max_price_per_unit: execution.l2_gas_price(),
                 },
             },
-            tip: 0,
+            tip: execution.tip(),
             paymaster_data: vec![],
             account_deployment_data: vec![],
             nonce_data_availability_mode: DataAvailabilityMode::L1,
