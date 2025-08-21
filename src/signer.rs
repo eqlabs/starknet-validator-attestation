@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use starknet::core::types::BroadcastedInvokeTransactionV3;
+use starknet::core::types::{BroadcastedInvokeTransactionV3, Felt};
 use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext};
-use starknet_crypto::Felt;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {

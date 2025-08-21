@@ -4,7 +4,7 @@ use starknet::{
     core::{
         types::{
             BlockId, BlockTag, BroadcastedInvokeTransactionV3, ContractExecutionError,
-            DataAvailabilityMode, FunctionCall, InnerContractExecutionError,
+            DataAvailabilityMode, Felt, FunctionCall, InnerContractExecutionError,
             MaybePreConfirmedBlockWithTxHashes, ResourceBounds, ResourceBoundsMapping,
             TransactionStatus,
         },
@@ -12,7 +12,6 @@ use starknet::{
     },
     providers::{JsonRpcClient, Provider, ProviderError, jsonrpc::HttpTransport},
 };
-use starknet_crypto::Felt;
 
 use crate::{
     attestation_info::AttestationInfo,
@@ -282,7 +281,7 @@ impl<'a, P: Provider + Send + Sync> ClearSigningAccount<'a, P> {
             signer,
             address,
             chain_id,
-            block_id: BlockId::Tag(BlockTag::PreConfirmed),
+            block_id: BlockId::Tag(BlockTag::Latest),
         }
     }
 }

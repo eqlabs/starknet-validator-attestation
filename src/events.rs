@@ -3,10 +3,9 @@ use std::time::Duration;
 use anyhow::Context;
 use starknet::core::{
     codec::Decode,
-    types::{EmittedEvent, ReorgData},
+    types::{EmittedEvent, Felt, ReorgData},
 };
 use starknet::macros::selector;
-use starknet_crypto::Felt;
 use starknet_tokio_tungstenite::{EventSubscriptionOptions, EventsUpdate, TungsteniteStream};
 use url::Url;
 

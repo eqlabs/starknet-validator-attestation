@@ -3,9 +3,9 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use starknet::core::types::BroadcastedInvokeTransactionV3;
+use starknet::core::types::{BroadcastedInvokeTransactionV3, Felt};
 use starknet::signers::SigningKey;
-use starknet_crypto::{Felt, PoseidonHasher, poseidon_hash_many};
+use starknet_crypto::{PoseidonHasher, poseidon_hash_many};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

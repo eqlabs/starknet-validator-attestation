@@ -2,11 +2,11 @@ use anyhow::Context;
 use clap::Parser;
 use jsonrpc::Client;
 use starknet::{
+    core::types::Felt,
     macros::felt,
     providers::{JsonRpcClient, Provider, jsonrpc::HttpTransport},
     signers::{LocalWallet, SigningKey},
 };
-use starknet_crypto::Felt;
 use tokio::select;
 use tracing_subscriber::EnvFilter;
 use url::Url;

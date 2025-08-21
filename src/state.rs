@@ -1,8 +1,7 @@
 use std::{cmp::Ordering, time::SystemTime};
 
 use anyhow::Context;
-use starknet::core::types::{TransactionExecutionStatus, TransactionStatus};
-use starknet_crypto::Felt;
+use starknet::core::types::{Felt, TransactionExecutionStatus, TransactionStatus};
 
 use crate::{
     attestation_info::AttestationInfo, events::AttestationEvent, signer::AttestationSigner,
@@ -13,7 +12,7 @@ use crate::{
 /// The block hash to attest must be available at the start of the attestation
 /// window. On Starknet, block hash of block N becomes available at block N +
 /// 10.
-const MIN_ATTESTATION_WINDOW: u64 = 10;
+const MIN_ATTESTATION_WINDOW: u64 = 11;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttestationParams {
