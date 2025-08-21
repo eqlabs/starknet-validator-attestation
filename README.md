@@ -5,14 +5,14 @@ This is a tool for attesting validators on Starknet. Implements the attestation 
 
 ## Requirements
 
-- A Starknet node with support for the JSON-RPC 0.8.1 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder) v0.16.3.
+- A Starknet node with support for the JSON-RPC 0.9.0 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder) v0.20.0.
 - Staking contracts set up and registered with Staking v2.
 - Sufficient funds in the operational account to pay for attestation transactions.
 
 
 ## Installation
 
-You can either use the Docker image we publish on [GitHub](https://github.com/eqlabs/starknet-validator-attestation/pkgs/container/starknet-validator-attestation), the binaries on our [release page](https://github.com/eqlabs/starknet-validator-attestation/releases/latest) or compile the source code from this repository. Compilation requires Rust 1.85+.
+You can either use the Docker image we publish on [GitHub](https://github.com/eqlabs/starknet-validator-attestation/pkgs/container/starknet-validator-attestation), the binaries on our [release page](https://github.com/eqlabs/starknet-validator-attestation/releases/latest) or compile the source code from this repository. Compilation requires Rust 1.89+.
 
 
 ## Running
@@ -22,7 +22,7 @@ docker run -it --rm --network host \
   -e VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY="0xdeadbeef" \
   ghcr.io/eqlabs/starknet-validator-attestation \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
-  --node-url http://localhost:9545/rpc/v0_8 \
+  --node-url http://localhost:9545/rpc/v0_9 \
   --local-signer
 ```
 
