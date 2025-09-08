@@ -15,6 +15,7 @@ reqwest = { version = "0.12.23", default-features = false, features = [
     "rustls-tls",
 ] }
 rustls = "0.23.31"
+semver = "1.0.26"
 serde = "1.0.219"
 serde_json = "1.0.143"
 starknet = "0.17.0"
