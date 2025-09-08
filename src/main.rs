@@ -100,6 +100,8 @@ enum LogFormat {
 
 const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
+const JSON_RPC_API_VERSION_REQUIRED: &str = ">=0.9.0,<0.10.0";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::parse();
@@ -138,6 +140,21 @@ async fn main() -> anyhow::Result<()> {
         http_client,
     ));
 
+    // Check version of JSON-RPC API endpoint
+    let spec_requirements = semver::VersionReq::parse(JSON_RPC_API_VERSION_REQUIRED)
+        .expect("JSON-RPC version requirements should be OK");
+    let spec_version: semver::Version = client
+        .spec_version()
+        .await
+        .context("Getting spec version of node endpoint")?
+        .parse()
+        .context("Parsing JSON-RPC API specification version")?;
+    if !spec_requirements.matches(&spec_version) {
+        tracing::error!(%spec_version, "Inappropriate version of JSON-RPC API detected. This tool requires 0.9.0, usually served on an URL ending in `v0_9`");
+        return Err(anyhow::anyhow!("Inappropriate JSON-RPC API version"));
+    }
+
+    // Set up JSON-RPC client
     let chain_id = client.chain_id().await.context("Getting chain ID")?;
     let (staking_contract_address, attestation_contract_address) =
         contract_addresses_from_config(&config, chain_id)?;
