@@ -107,7 +107,8 @@ Available metrics are:
 - `validator_attestation_last_attestation_timestamp_seconds`: Timestamp of the last attestation.
 - `validator_attestation_attestation_submitted_count`: Number of attestations submitted by the validator.
 - `validator_attestation_attestation_failure_count`: Number of attestation transaction submission failures.
-- `validator_attestation_attestation_confirmed_count`: Number of attestations confirmed by the network.
+- `validator_attestation_attestation_confirmed_count`: Number of attestations submitted that have been confirmed by the network.
+- `validator_attestation_attestation_confirmations_observed_count`: Number of total attestation confirmations (includes attestation _not_ submitted by this tool).
 - `validator_attestation_missed_epochs_count`: Number of epochs with no successful attestation.
 - `validator_attestation_operational_account_balance_strk`: Current STRK token balance of the operational account.
 
