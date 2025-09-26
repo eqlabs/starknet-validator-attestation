@@ -100,4 +100,10 @@ fn describe_metrics() {
         metrics::Unit::Count,
         "Current STRK balance of the operational account"
     );
+    let _ = metrics::counter!("validator_attestation_attestation_confirmations_observed_count");
+    metrics::describe_counter!(
+        "validator_attestation_attestation_confirmations_observed_count",
+        metrics::Unit::Count,
+        "Number of total attestation confirmations observed"
+    );
 }

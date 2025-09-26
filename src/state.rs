@@ -409,6 +409,25 @@ impl State {
 
     fn handle_attestation_successful_event(self, staker_address: Felt, epoch_id: u64) -> Self {
         match self {
+            State::BeforeBlockToAttest {
+                attestation_info,
+                block_to_attest,
+            } => {
+                if attestation_info.staker_address == staker_address
+                    && attestation_info.epoch_id == epoch_id
+                {
+                    metrics::counter!(
+                        "validator_attestation_attestation_confirmations_observed_count"
+                    )
+                    .increment(1);
+                } else {
+                    tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
+                }
+                State::BeforeBlockToAttest {
+                    attestation_info,
+                    block_to_attest,
+                }
+            }
             State::Attesting {
                 attestation_info,
                 attestation_params,
@@ -416,9 +435,10 @@ impl State {
                 if attestation_info.staker_address == staker_address
                     && attestation_info.epoch_id == epoch_id
                 {
-                    tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
-                    metrics::counter!("validator_attestation_attestation_confirmed_count")
-                        .increment(1);
+                    metrics::counter!(
+                        "validator_attestation_attestation_confirmations_observed_count"
+                    )
+                    .increment(1);
                     Self::WaitingForNextEpoch { attestation_info }
                 } else {
                     tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
@@ -437,6 +457,10 @@ impl State {
                     && attestation_info.epoch_id == epoch_id
                 {
                     tracing::info!(?staker_address, %epoch_id, "Attestation confirmed");
+                    metrics::counter!(
+                        "validator_attestation_attestation_confirmations_observed_count"
+                    )
+                    .increment(1);
                     metrics::counter!("validator_attestation_attestation_confirmed_count")
                         .increment(1);
                     Self::WaitingForNextEpoch { attestation_info }
@@ -449,7 +473,19 @@ impl State {
                     }
                 }
             }
-            _ => self,
+            State::WaitingForNextEpoch { attestation_info } => {
+                if attestation_info.staker_address == staker_address
+                    && attestation_info.epoch_id == epoch_id
+                {
+                    metrics::counter!(
+                        "validator_attestation_attestation_confirmations_observed_count"
+                    )
+                    .increment(1);
+                } else {
+                    tracing::trace!(?staker_address, %epoch_id, "Skipping attestation successful event for other staker");
+                }
+                State::WaitingForNextEpoch { attestation_info }
+            }
         }
     }
 }
