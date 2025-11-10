@@ -98,6 +98,13 @@ impl Client for StarknetRpcClient {
     ) -> Result<Felt, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
 
+        // Calculate tip as the median value from the latest block.
+        let latest_block = self
+            .client
+            .get_block_with_txs(BlockId::Tag(BlockTag::Latest))
+            .await?;
+        let tip = latest_block.median_tip();
+
         let account = ClearSigningAccount::new(&self.client, signer, operational_address, chain_id);
 
         let result = account
@@ -108,6 +115,7 @@ impl Client for StarknetRpcClient {
             }])
             .gas_price_estimate_multiplier(3.0)
             .gas_estimate_multiplier(3.0)
+            .tip(tip)
             .send()
             .await
             .context("Sending transaction")?;
