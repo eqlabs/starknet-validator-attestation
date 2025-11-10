@@ -93,6 +93,11 @@ The API should expose a single `/sign` endpoint:
 
 An example implementation of the API is available [here](./examples/signer.rs).
 
+
+### Tip
+
+The transaction tip value used during submission is calculated based on the median tip value in the `latest` block. The exact value used during submission is `MAX(latest_median_tip * ${tip_boost}, ${minimum_tip})`, where `tip_boost` and `minimum_tip` can be configured using the `--tip-boost` and `--minimum-tip` CLI arguments.
+
 ## Monitoring
 
 A metrics endpoint is provided for scraping with Prometheus. By default the endpoint is available at `http://127.0.0.1:9090/metrics`. You can use the `--metrics-address` CLI option to change this address.
