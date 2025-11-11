@@ -18,6 +18,7 @@ mod jsonrpc;
 mod metrics_exporter;
 mod signer;
 mod state;
+mod tip;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -90,6 +91,22 @@ struct Config {
 
     #[arg(long, default_value = "compact", value_name = "FORMAT")]
     pub log_format: LogFormat,
+
+    #[arg(
+        long,
+        long_help = "The median tip value from recent transactions is multiplied by this scaling factor when calculating the transaction tip.",
+        default_value = "1.0",
+        env = "VALIDATOR_ATTESTATION_TIP_BOOST"
+    )]
+    pub tip_boost: f64,
+
+    #[arg(
+        long,
+        long_help = "Minimum value of the transaction tip to use when submitting the attestation transaction.",
+        default_value = "0",
+        env = "VALIDATOR_ATTESTATION_MINIMUM_TIP"
+    )]
+    pub minimum_tip: u64,
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -153,6 +170,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::error!(%spec_version, "Inappropriate version of JSON-RPC API detected. This tool requires 0.9.0, usually served on an URL ending in `v0_9`");
         return Err(anyhow::anyhow!("Inappropriate JSON-RPC API version"));
     }
+
+    let tip_calculation_params = tip::TipCalculationParams {
+        tip_boost: config.tip_boost,
+        minimum_tip: config.minimum_tip,
+    };
 
     // Set up JSON-RPC client
     let chain_id = client.chain_id().await.context("Getting chain ID")?;
@@ -305,7 +327,7 @@ async fn main() -> anyhow::Result<()> {
                         metrics::gauge!("validator_attestation_starknet_latest_block_number").set(header.block_number as f64);
 
                         let old_state = state.clone();
-                        let result = state.handle_new_block_header(&client, config.staker_operational_address, &signer, header.block_number, header.block_hash).await;
+                        let result = state.handle_new_block_header(&client, config.staker_operational_address, &signer, &tip_calculation_params, header.block_number, header.block_hash).await;
                         match result {
                             Ok(new_state) => {
                                 tracing::debug!(?new_state, "State transition complete");

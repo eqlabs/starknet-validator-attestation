@@ -5,6 +5,7 @@ use starknet::core::types::{Felt, TransactionExecutionStatus, TransactionStatus}
 
 use crate::{
     attestation_info::AttestationInfo, events::AttestationEvent, signer::AttestationSigner,
+    tip::TipCalculationParams,
 };
 
 /// Minimum attestation window.
@@ -104,6 +105,7 @@ impl State {
         client: &C,
         operational_address: Felt,
         signer: &AttestationSigner,
+        tip_calculation_params: &TipCalculationParams,
         block_number: u64,
         block_hash: Felt,
     ) -> anyhow::Result<Self> {
@@ -201,6 +203,7 @@ impl State {
                     Self::check_and_submit_attestation(
                         client,
                         signer,
+                        tip_calculation_params,
                         attestation_info,
                         attestation_params,
                     )
@@ -262,6 +265,7 @@ impl State {
                                 Self::check_and_submit_attestation(
                                     client,
                                     signer,
+                                    tip_calculation_params,
                                     attestation_info,
                                     attestation_params,
                                 )
@@ -302,6 +306,7 @@ impl State {
     async fn check_and_submit_attestation<C: crate::jsonrpc::Client + Send + Sync + 'static>(
         client: &C,
         signer: &AttestationSigner,
+        tip_calculation_params: &TipCalculationParams,
         attestation_info: AttestationInfo,
         attestation_params: AttestationParams,
     ) -> anyhow::Result<Self> {
@@ -311,8 +316,14 @@ impl State {
             .context("Checking attestation status")?;
 
         let next_state = if !attestation_done {
-            match Self::submit_attestation(client, signer, &attestation_info, &attestation_params)
-                .await
+            match Self::submit_attestation(
+                client,
+                signer,
+                tip_calculation_params,
+                &attestation_info,
+                &attestation_params,
+            )
+            .await
             {
                 Ok(transaction_hash) => Self::AttestationSubmitted {
                     attestation_info,
@@ -335,6 +346,7 @@ impl State {
     async fn submit_attestation<C: crate::jsonrpc::Client + Send + Sync + 'static>(
         client: &C,
         signer: &AttestationSigner,
+        tip_calculation_params: &TipCalculationParams,
         attestation_info: &AttestationInfo,
         attestation_params: &AttestationParams,
     ) -> anyhow::Result<Felt> {
@@ -343,6 +355,7 @@ impl State {
             .attest(
                 attestation_info.operational_address,
                 signer,
+                tip_calculation_params,
                 attestation_params.block_hash,
             )
             .await;
@@ -556,11 +569,19 @@ mod tests {
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
+        let tip_calculation_params = TipCalculationParams::default();
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block before the block to attest
         let state = state
-            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                &tip_calculation_params,
+                0,
+                BLOCK_HASH,
+            )
             .await
             .unwrap();
         assert_matches!(
@@ -577,6 +598,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest,
                 BLOCK_HASH,
             )
@@ -595,6 +617,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW,
                 BLOCK_HASH,
             )
@@ -616,6 +639,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_attestation_info.epoch_len,
                 BLOCK_HASH,
             )
@@ -629,6 +653,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 next_attestation_info.calculate_expected_attestation_block(),
                 BLOCK_HASH,
             )
@@ -671,11 +696,19 @@ mod tests {
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
+        let tip_calculation_params = TipCalculationParams::default();
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block before the block to attest
         let state = state
-            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                &tip_calculation_params,
+                0,
+                BLOCK_HASH,
+            )
             .await
             .unwrap();
         assert_matches!(
@@ -692,6 +725,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest,
                 BLOCK_HASH,
             )
@@ -710,6 +744,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW,
                 BLOCK_HASH,
             )
@@ -724,6 +759,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW + 1,
                 BLOCK_HASH,
             )
@@ -737,6 +773,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_attestation_info.epoch_len,
                 BLOCK_HASH,
             )
@@ -750,6 +787,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 next_attestation_info.calculate_expected_attestation_block(),
                 BLOCK_HASH,
             )
@@ -794,11 +832,19 @@ mod tests {
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
+        let tip_calculation_params = TipCalculationParams::default();
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block before the block to attest
         let state = state
-            .handle_new_block_header(&client, OPERATIONAL_ADDRESS, &signer, 0, BLOCK_HASH)
+            .handle_new_block_header(
+                &client,
+                OPERATIONAL_ADDRESS,
+                &signer,
+                &tip_calculation_params,
+                0,
+                BLOCK_HASH,
+            )
             .await
             .unwrap();
         assert_matches!(
@@ -815,6 +861,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest,
                 BLOCK_HASH,
             )
@@ -833,6 +880,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW,
                 BLOCK_HASH,
             )
@@ -848,6 +896,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW + 1,
                 BLOCK_HASH,
             )
@@ -864,6 +913,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW + 2,
                 BLOCK_HASH,
             )
@@ -878,6 +928,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_attestation_info.epoch_len,
                 BLOCK_HASH,
             )
@@ -891,6 +942,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 next_attestation_info.calculate_expected_attestation_block(),
                 BLOCK_HASH,
             )
@@ -933,6 +985,7 @@ mod tests {
         let signer = AttestationSigner::new_local(LocalWallet::from_signing_key(
             SigningKey::from_secret_scalar(felt!("0x123456789abcdef")),
         ));
+        let tip_calculation_params = TipCalculationParams::default();
         let state = State::from_attestation_info(initial_attestation_info.clone());
 
         // Block after the block to attest
@@ -941,6 +994,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + 1,
                 BLOCK_HASH,
             )
@@ -960,6 +1014,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_block_to_attest + MIN_ATTESTATION_WINDOW,
                 BLOCK_HASH,
             )
@@ -981,6 +1036,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 initial_attestation_info.epoch_len,
                 BLOCK_HASH,
             )
@@ -994,6 +1050,7 @@ mod tests {
                 &client,
                 OPERATIONAL_ADDRESS,
                 &signer,
+                &tip_calculation_params,
                 next_attestation_info.calculate_expected_attestation_block(),
                 BLOCK_HASH,
             )
@@ -1047,6 +1104,7 @@ mod tests {
             &self,
             operational_address: Felt,
             _signer: &AttestationSigner,
+            _tip_calculation_params: &TipCalculationParams,
             block_hash: Felt,
         ) -> Result<Felt, ClientError> {
             assert_eq!(operational_address, OPERATIONAL_ADDRESS);
