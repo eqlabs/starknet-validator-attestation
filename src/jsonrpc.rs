@@ -16,6 +16,7 @@ use starknet::{
 use crate::{
     attestation_info::AttestationInfo,
     signer::{AttestationSigner, SignError},
+    tip::TipCalculationParams,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -64,6 +65,7 @@ pub trait Client {
         &self,
         operational_address: Felt,
         signer: &AttestationSigner,
+        tip_calculation_params: &TipCalculationParams,
         block_hash: Felt,
     ) -> Result<Felt, ClientError>;
     async fn attestation_done_in_current_epoch(
@@ -94,9 +96,18 @@ impl Client for StarknetRpcClient {
         &self,
         operational_address: Felt,
         signer: &AttestationSigner,
+        tip_calculation_params: &TipCalculationParams,
         block_hash: Felt,
     ) -> Result<Felt, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
+
+        // Calculate tip as the median value from the latest block and apply params.
+        let latest_block = self
+            .client
+            .get_block_with_txs(BlockId::Tag(BlockTag::Latest))
+            .await?;
+        let current_median_tip = latest_block.median_tip();
+        let tip = tip_calculation_params.calculate_tip(current_median_tip);
 
         let account = ClearSigningAccount::new(&self.client, signer, operational_address, chain_id);
 
@@ -108,6 +119,7 @@ impl Client for StarknetRpcClient {
             }])
             .gas_price_estimate_multiplier(3.0)
             .gas_estimate_multiplier(3.0)
+            .tip(tip)
             .send()
             .await
             .context("Sending transaction")?;
