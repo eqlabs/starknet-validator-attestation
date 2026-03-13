@@ -3,9 +3,9 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{BroadcastedInvokeTransactionV3, Felt};
-use starknet::signers::SigningKey;
-use starknet_crypto::{PoseidonHasher, poseidon_hash_many};
+use starknet_rust::core::types::{BroadcastedInvokeTransactionV3, Felt};
+use starknet_rust::signers::SigningKey;
+use starknet_rust_crypto::{PoseidonHasher, poseidon_hash_many};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -171,14 +171,14 @@ fn transaction_hash(tx: &BroadcastedInvokeTransactionV3, chain_id: Felt) -> Felt
 
 #[cfg(test)]
 mod tests {
-    use starknet::core::{
+    use starknet_rust::core::{
         chain_id,
         types::{
             BroadcastedInvokeTransactionV3, DataAvailabilityMode, ResourceBounds,
             ResourceBoundsMapping,
         },
     };
-    use starknet::macros::felt;
+    use starknet_rust::macros::felt;
 
     use super::transaction_hash;
 

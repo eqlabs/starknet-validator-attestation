@@ -1,5 +1,5 @@
-use starknet::core::types::{Felt, NonZeroFelt};
-use starknet_crypto::PoseidonHasher;
+use starknet_rust::core::types::{Felt, NonZeroFelt};
+use starknet_rust_crypto::PoseidonHasher;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttestationInfo {

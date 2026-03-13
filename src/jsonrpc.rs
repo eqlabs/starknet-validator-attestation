@@ -1,5 +1,5 @@
 use anyhow::Context;
-use starknet::{
+use starknet_rust::{
     accounts::{Account, AccountError},
     core::{
         types::{
@@ -31,7 +31,7 @@ impl From<ProviderError> for ClientError {
     fn from(error: ProviderError) -> Self {
         match error {
             ProviderError::StarknetError(error) => match error {
-                starknet::core::types::StarknetError::TransactionExecutionError(data) => {
+                starknet_rust::core::types::StarknetError::TransactionExecutionError(data) => {
                     let message = contract_execution_error_message(&data.execution_error);
                     ClientError::AttestationFailed(format!("Transaction rejected: {message}"))
                 }
@@ -112,7 +112,7 @@ impl Client for StarknetRpcClient {
         let account = ClearSigningAccount::new(&self.client, signer, operational_address, chain_id);
 
         let result = account
-            .execute_v3(vec![starknet::core::types::Call {
+            .execute_v3(vec![starknet_rust::core::types::Call {
                 to: self.attestation_contract_address,
                 selector: get_selector_from_name("attest").unwrap(),
                 calldata: vec![block_hash],
@@ -271,7 +271,7 @@ impl StarknetRpcClient {
 
     pub async fn chain_id_as_string(&self) -> Result<String, ClientError> {
         let chain_id = self.client.chain_id().await.context("Getting chain ID")?;
-        let chain_id = starknet::core::utils::parse_cairo_short_string(&chain_id)
+        let chain_id = starknet_rust::core::utils::parse_cairo_short_string(&chain_id)
             .context("Parsing chain ID as Cairo short string")?;
         Ok(chain_id)
     }
@@ -315,7 +315,7 @@ where
 
     async fn sign_execution_v3(
         &self,
-        execution: &starknet::accounts::RawExecutionV3,
+        execution: &starknet_rust::accounts::RawExecutionV3,
         query_only: bool,
     ) -> Result<Vec<Felt>, Self::SignError> {
         let tx_hash = execution.transaction_hash(self.chain_id, self.address, query_only, self);
@@ -331,7 +331,7 @@ where
 
     async fn sign_declaration_v3(
         &self,
-        _declaration: &starknet::accounts::RawDeclarationV3,
+        _declaration: &starknet_rust::accounts::RawDeclarationV3,
         _query_only: bool,
     ) -> Result<Vec<Felt>, Self::SignError> {
         unimplemented!("Signing declaration is not implemented. This is an internal error.");
@@ -339,17 +339,17 @@ where
 
     fn is_signer_interactive(
         &self,
-        context: starknet::signers::SignerInteractivityContext<'_>,
+        context: starknet_rust::signers::SignerInteractivityContext<'_>,
     ) -> bool {
         self.signer.is_signer_interactive(context)
     }
 }
 
-impl<P> starknet::accounts::ExecutionEncoder for ClearSigningAccount<'_, P>
+impl<P> starknet_rust::accounts::ExecutionEncoder for ClearSigningAccount<'_, P>
 where
     P: Provider + Send,
 {
-    fn encode_calls(&self, calls: &[starknet::core::types::Call]) -> Vec<Felt> {
+    fn encode_calls(&self, calls: &[starknet_rust::core::types::Call]) -> Vec<Felt> {
         let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
 
         for call in calls {
@@ -364,7 +364,7 @@ where
     }
 }
 
-impl<P> starknet::accounts::ConnectedAccount for ClearSigningAccount<'_, P>
+impl<P> starknet_rust::accounts::ConnectedAccount for ClearSigningAccount<'_, P>
 where
     P: Provider + Sync + Send,
 {
@@ -382,10 +382,10 @@ where
 impl<P: Provider + Send + Sync> ClearSigningAccount<'_, P> {
     fn get_invoke_request(
         &self,
-        execution: &starknet::accounts::RawExecutionV3,
+        execution: &starknet_rust::accounts::RawExecutionV3,
         query_only: bool,
     ) -> BroadcastedInvokeTransactionV3 {
-        use starknet::accounts::ExecutionEncoder;
+        use starknet_rust::accounts::ExecutionEncoder;
 
         BroadcastedInvokeTransactionV3 {
             sender_address: self.address,

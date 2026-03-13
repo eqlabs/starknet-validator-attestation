@@ -1,21 +1,21 @@
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{BroadcastedInvokeTransactionV3, Felt};
-use starknet::signers::{LocalWallet, Signer, SignerInteractivityContext};
+use starknet_rust::core::types::{BroadcastedInvokeTransactionV3, Felt};
+use starknet_rust::signers::{LocalWallet, Signer, SignerInteractivityContext};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
     /// An error encountered by the signer implementation.
     #[error(transparent)]
-    Signing(starknet::core::crypto::EcdsaSignError),
+    Signing(starknet_rust::core::crypto::EcdsaSignError),
     /// A transport error encountered during remote signing.
     #[error(transparent)]
     Transport(reqwest::Error),
 }
 
-impl From<starknet::signers::local_wallet::SignError> for SignError {
-    fn from(value: starknet::signers::local_wallet::SignError) -> Self {
+impl From<starknet_rust::signers::local_wallet::SignError> for SignError {
+    fn from(value: starknet_rust::signers::local_wallet::SignError) -> Self {
         match value {
-            starknet::signers::local_wallet::SignError::EcdsaSignError(ecdsa_sign_error) => {
+            starknet_rust::signers::local_wallet::SignError::EcdsaSignError(ecdsa_sign_error) => {
                 Self::Signing(ecdsa_sign_error)
             }
         }

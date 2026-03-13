@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use starknet::core::types::{BlockHeader, ConfirmedBlockId, ReorgData};
-use starknet_tokio_tungstenite::{NewHeadsUpdate, TungsteniteStream};
+use starknet_rust::core::types::{BlockHeader, ConfirmedBlockId, ReorgData};
+use starknet_rust_tokio_tungstenite::{NewHeadsUpdate, TungsteniteStream};
 use url::Url;
 
 pub async fn fetch(

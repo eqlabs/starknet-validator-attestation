@@ -5,7 +5,7 @@ This is a tool for attesting validators on Starknet. Implements the attestation 
 
 ## Requirements
 
-- A Starknet node with support for the JSON-RPC 0.9.0 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder) v0.20.0.
+- A Starknet node with support for the JSON-RPC 0.10.0 API specification. This tool has been tested with [Pathfinder](https://github.com/eqlabs/pathfinder) v0.21.5.
 - Staking contracts set up and registered with Staking v2.
 - Sufficient funds in the operational account to pay for attestation transactions.
 
@@ -22,7 +22,7 @@ docker run -it --rm --network host \
   -e VALIDATOR_ATTESTATION_OPERATIONAL_PRIVATE_KEY="0xdeadbeef" \
   ghcr.io/eqlabs/starknet-validator-attestation \
   --staker-operational-address 0x02e216b191ac966ba1d35cb6cfddfaf9c12aec4dfe869d9fa6233611bb334ee9 \
-  --node-url http://localhost:9545/rpc/v0_9 \
+  --node-url http://localhost:9545/rpc/v0_10 \
   --local-signer
 ```
 
