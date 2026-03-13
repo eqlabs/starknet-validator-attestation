@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, time::SystemTime};
 
 use anyhow::Context;
-use starknet::core::types::{Felt, TransactionExecutionStatus, TransactionStatus};
+use starknet_rust::core::types::{Felt, TransactionExecutionStatus, TransactionStatus};
 
 use crate::{
     attestation_info::AttestationInfo, events::AttestationEvent, signer::AttestationSigner,
@@ -99,7 +99,7 @@ impl State {
 
     pub async fn handle_new_block_header<
         C: crate::jsonrpc::Client + Send + Sync + 'static,
-        // S: starknet::signers::Signer + Send + Sync + 'static,
+        // S: starknet_rust::signers::Signer + Send + Sync + 'static,
     >(
         self,
         client: &C,
@@ -508,7 +508,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use assert_matches::assert_matches;
-    use starknet::{
+    use starknet_rust::{
         core::types::ExecutionResult,
         macros::felt,
         signers::{LocalWallet, SigningKey},

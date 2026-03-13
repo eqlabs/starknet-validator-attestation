@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use jsonrpc::Client;
-use starknet::{
+use starknet_rust::{
     core::types::Felt,
     macros::felt,
     providers::{JsonRpcClient, Provider, jsonrpc::HttpTransport},
@@ -117,7 +117,7 @@ enum LogFormat {
 
 const TASK_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
-const JSON_RPC_API_VERSION_REQUIRED: &str = ">=0.9.0,<0.10.0";
+const JSON_RPC_API_VERSION_REQUIRED: &str = ">=0.10.0,<0.11.0";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .context("Parsing JSON-RPC API specification version")?;
     if !spec_requirements.matches(&spec_version) {
-        tracing::error!(%spec_version, "Inappropriate version of JSON-RPC API detected. This tool requires 0.9.0, usually served on an URL ending in `v0_9`");
+        tracing::error!(%spec_version, "Inappropriate version of JSON-RPC API detected. This tool requires 0.10.0, usually served on an URL ending in `v0_10`");
         return Err(anyhow::anyhow!("Inappropriate JSON-RPC API version"));
     }
 
@@ -396,9 +396,9 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
         felt!("0x03745ab04a431fc02871a139be6b93d9260b0ff3e779ad9c8b377183b23109f1");
 
     let staking_contract_address = config.staking_contract_address.or_else(|| {
-        if chain_id == starknet::core::chain_id::MAINNET {
+        if chain_id == starknet_rust::core::chain_id::MAINNET {
             Some(MAINNET_STAKING_CONTRACT_ADDRESS)
-        } else if chain_id == starknet::core::chain_id::SEPOLIA {
+        } else if chain_id == starknet_rust::core::chain_id::SEPOLIA {
             Some(SEPOLIA_STAKING_CONTRACT_ADDRESS)
         } else {
             None
@@ -415,9 +415,9 @@ fn contract_addresses_from_config(config: &Config, chain_id: Felt) -> anyhow::Re
     let attestation_contract_address = config
         .attestation_contract_address
         .or_else(|| {
-            if chain_id == starknet::core::chain_id::MAINNET {
+            if chain_id == starknet_rust::core::chain_id::MAINNET {
                 Some(MAINNET_ATTESTATION_CONTRACT_ADDRESS)
-            } else if chain_id == starknet::core::chain_id::SEPOLIA {
+            } else if chain_id == starknet_rust::core::chain_id::SEPOLIA {
                 Some(SEPOLIA_ATTESTATION_CONTRACT_ADDRESS)
             } else {
                 None
@@ -436,8 +436,8 @@ fn strk_contract_address_from_chain_id(chain_id: Felt) -> anyhow::Result<Felt> {
         felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
 
     // Support mainnet and sepolia (both use same contract address currently)
-    if chain_id == starknet::core::chain_id::MAINNET
-        || chain_id == starknet::core::chain_id::SEPOLIA
+    if chain_id == starknet_rust::core::chain_id::MAINNET
+        || chain_id == starknet_rust::core::chain_id::SEPOLIA
     {
         Ok(STRK_CONTRACT_ADDRESS)
     } else {
