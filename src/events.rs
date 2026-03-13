@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use starknet::core::{
+use starknet_rust::core::{
     codec::Decode,
     types::{EmittedEvent, Felt, ReorgData},
 };
-use starknet::macros::selector;
-use starknet_tokio_tungstenite::{EventSubscriptionOptions, EventsUpdate, TungsteniteStream};
+use starknet_rust::macros::selector;
+use starknet_rust_tokio_tungstenite::{EventSubscriptionOptions, EventsUpdate, TungsteniteStream};
 use url::Url;
 
 const SELECTOR_STAKER_ATTESTATION_SUCCESSFUL: Felt = selector!("StakerAttestationSuccessful");
